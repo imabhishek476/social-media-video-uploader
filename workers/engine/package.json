@@ -1,0 +1,26 @@
+{
+  "name": "@shorts/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@shorts/config": "0.1.0",
+    "@shorts/core": "0.1.0",
+    "@shorts/database": "0.1.0",
+    "@shorts/integrations": "0.1.0",
+    "@shorts/observability": "0.1.0",
+    "@shorts/queue": "0.1.0",
+    "@shorts/shared-types": "0.1.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "ai-shorts-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automated AI YouTube Shorts Generator — multi-streamer monitoring, post-live AI clipping and central YouTube publishing.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "workers/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,worker,web -c blue,magenta,green \"npm run dev -w @shorts/api\" \"npm run dev -w @shorts/worker\" \"npm run dev -w @shorts/web\"",
+    "dev:api": "npm run dev -w @shorts/api",
+    "dev:worker": "npm run dev -w @shorts/worker",
+    "dev:web": "npm run dev -w @shorts/web",
+    "infra:up": "docker compose up -d mongo redis",
+    "infra:down": "docker compose down",
+    "seed:admin": "npm run seed:admin -w @shorts/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3"
+  }
+}

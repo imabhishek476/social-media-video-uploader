@@ -1,0 +1,87 @@
+# Local development infrastructure.
+#   docker compose up -d mongo redis          -> just MongoDB + Redis (use `npm run dev` for the apps)
+#   docker compose --profile app up --build   -> full stack in containers
+name: ai-shorts
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    # WiredTiger keeps a file handle per collection/index; the container default is too low.
+    ulimits:
+      nofile: { soft: 64000, hard: 64000 }
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: api
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/ai_shorts
+      REDIS_URL: redis://redis:6379
+      WEB_ORIGIN: http://localhost:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: worker
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/ai_shorts
+      REDIS_URL: redis://redis:6379
+      STORAGE_DIR: /data/storage
+    volumes:
+      - media-data:/data/storage
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: web
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
+
+volumes:
+  mongo-data:
+  redis-data:
+  media-data:
