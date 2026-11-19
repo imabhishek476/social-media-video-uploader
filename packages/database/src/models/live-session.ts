@@ -15,6 +15,8 @@ const sourceMediaSchema = new Schema(
     height: { type: Number, default: null },
     frameRate: { type: Number, default: null },
     hasAudio: { type: Boolean, default: null },
+    videoCodec: { type: String, default: null },
+    readyAt: { type: Date, default: null },
     lastError: { type: String, default: null },
   },
   { _id: false },
@@ -34,6 +36,9 @@ const liveSessionSchema = new Schema(
     endConfirmationCount: { type: Number, default: 0 },
     sourceMedia: { type: sourceMediaSchema, default: () => ({}) },
     processingStatus: { type: String, enum: enumValues(ProcessingStatus), default: ProcessingStatus.NOT_STARTED },
+    /** Current step while PROCESSING (TRANSCRIBING / ANALYZING). */
+    processingStage: { type: String, default: null },
+    highlightCount: { type: Number, default: 0 },
     clipCount: { type: Number, default: 0 },
     estimatedCostUsd: { type: Number, default: 0 },
     /** How the end was established: provider end time, N confirmations, or admin action. */

@@ -44,7 +44,7 @@ CMD ["node", "--enable-source-maps", "apps/api/dist/index.js"]
 # ---- worker (FFmpeg/FFprobe for media processing) ----------------------------
 FROM runtime AS worker
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg \
+  && apt-get install -y --no-install-recommends ffmpeg fonts-montserrat fonts-noto-core \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /data/storage && chown node:node /data/storage
 COPY --from=build /app/workers/engine/dist workers/engine/dist

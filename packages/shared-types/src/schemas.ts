@@ -45,6 +45,21 @@ export const appSettingsSchema = z.object({
     dailyUploadLimit: z.number().int().min(0).max(100),
     minMinutesBetweenUploads: z.number().int().min(0).max(24 * 60),
     categoryId: z.string().trim().max(10),
+    /** Uploads only start inside [windowStartHour, windowEndHour) in `timezone`. 0–24 = any time. */
+    windowStartHour: z.number().int().min(0).max(23),
+    windowEndHour: z.number().int().min(1).max(24),
+    timezone: z.string().trim().min(1).max(60).refine((tz) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'Unknown time zone (use an IANA name like Asia/Kolkata)'),
+  }),
+  costs: z.object({
+    /** Month-to-date AI spend (transcription + LLM) at which processing pauses. 0 = no cap. */
+    monthlyBudgetUsd: z.number().min(0).max(100_000),
   }),
   providers: z.object({
     transcription: z.string().trim().min(1).max(50),
@@ -55,6 +70,8 @@ export const appSettingsSchema = z.object({
     sourceDays: z.number().int().min(0).max(3650),
     clipDays: z.number().int().min(0).max(3650),
     transcriptDays: z.number().int().min(0).max(3650),
+    /** Delete the raw recording this many days after every Short of the stream is published or rejected. 0 = only use sourceDays. */
+    sourceAfterDoneDays: z.number().int().min(0).max(3650),
   }),
 });
 export type AppSettingsInput = z.infer<typeof appSettingsSchema>;
@@ -67,6 +84,7 @@ export const settingsUpdateSchema = z
     clips: appSettingsSchema.shape.clips.partial(),
     subtitles: appSettingsSchema.shape.subtitles.partial(),
     publishing: appSettingsSchema.shape.publishing.partial(),
+    costs: appSettingsSchema.shape.costs.partial(),
     providers: appSettingsSchema.shape.providers.partial(),
     retention: appSettingsSchema.shape.retention.partial(),
   })
@@ -80,6 +98,7 @@ export function validateSettingsInvariants(s: AppSettingsInput): string[] {
   const { minDurationSeconds: min, maxDurationSeconds: max, defaultDurationSeconds: def } = s.clips;
   if (min > max) errors.push('clips.minDurationSeconds must be <= clips.maxDurationSeconds');
   if (def < min || def > max) errors.push('clips.defaultDurationSeconds must be between min and max duration');
+  if (s.publishing.windowStartHour >= s.publishing.windowEndHour) errors.push('publishing.windowStartHour must be before publishing.windowEndHour');
   return errors;
 }
 
@@ -154,3 +173,35 @@ export const sessionListQuerySchema = paginationQuerySchema.extend({
 export type SessionListQuery = z.infer<typeof sessionListQuerySchema>;
 
 export const mockGoLiveSchema = z.object({ title: z.string().trim().min(1).max(200).optional() }).strict();
+
+/** Clip Studio edits to one highlight candidate (spec §16). */
+export const candidateUpdateSchema = z
+  .object({
+    status: z.enum(['CANDIDATE', 'SELECTED', 'DISCARDED']).optional(),
+    startSeconds: z.number().min(0).optional(),
+    endSeconds: z.number().min(0).optional(),
+    discardReason: z.string().trim().max(300).optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, 'Nothing to update')
+  .refine((v) => v.startSeconds === undefined || v.endSeconds === undefined || v.endSeconds > v.startSeconds, {
+    message: 'End must be after start',
+    path: ['endSeconds'],
+  });
+export type CandidateUpdateInput = z.infer<typeof candidateUpdateSchema>;
+
+export const transcriptQuerySchema = z.object({
+  from: z.coerce.number().min(0).optional(),
+  to: z.coerce.number().min(0).optional(),
+});
+
+/** Clip Studio edits to a Short's YouTube metadata (Phase 6). */
+export const clipMetadataSchema = z
+  .object({
+    title: z.string().max(100).optional(),
+    description: z.string().max(5000).optional(),
+    tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
+export type ClipMetadataInput = z.infer<typeof clipMetadataSchema>;

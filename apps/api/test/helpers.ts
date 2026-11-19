@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { parseConfig } from '@shorts/config';
 import { UserModel, connectDatabase, disconnectDatabase, mongoose, syncIndexes } from '@shorts/database';
 import { createLogger } from '@shorts/observability';
@@ -25,6 +27,7 @@ export async function setupTestApp(provider: YouTubeMetadataProvider = new MockY
     MONGODB_URI: MONGO_URI,
     REDIS_URL,
     JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
+    STORAGE_DIR: path.join(os.tmpdir(), 'shorts-api-test-storage'),
   });
   const logger = createLogger({ service: 'api-test', level: 'silent' });
   await connectDatabase(MONGO_URI);

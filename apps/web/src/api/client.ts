@@ -49,3 +49,28 @@ export function describeError(error: unknown): string {
   }
   return error instanceof Error ? error.message : 'Something went wrong';
 }
+
+/** Upload a file as the raw request body with progress (fetch has no upload progress). */
+export function uploadFile<T>(path: string, file: File, onProgress: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}${path}`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('X-Upload-Filename', encodeURIComponent(file.name));
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(Math.round((e.loaded / e.total) * 100));
+    xhr.onerror = () => reject(new ApiError(0, 'NETWORK', 'Upload failed: network error'));
+    xhr.onload = () => {
+      let data: unknown = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        /* non-JSON body */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data as T);
+      const err = (data as ApiErrorBody | null)?.error;
+      reject(new ApiError(xhr.status, err?.code ?? 'HTTP_ERROR', err?.message ?? `Upload failed (${xhr.status})`, err?.details));
+    };
+    xhr.send(file);
+  });
+}

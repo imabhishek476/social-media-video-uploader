@@ -109,7 +109,11 @@ describe('dashboard and system', () => {
       shortsGeneratedToday: 0,
       shortsPublishedToday: 0,
       failedJobs: 0,
+      awaitingReview: 0,
+      queuedUploads: 0,
     });
+    expect(res.body.costs).toEqual({ spentUsd: 0, budgetUsd: 0 });
+    expect(res.body.topShorts).toEqual([]);
     expect(res.body.recentSessions).toEqual([]);
   });
 

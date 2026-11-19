@@ -28,8 +28,10 @@ import { describeError } from '../api/client';
 import { useDashboardSummary, useSystemStatus } from '../api/hooks';
 import { PageHeader } from '../components/PageHeader';
 import { StatCard } from '../components/StatCard';
+import RateReviewOutlined from '@mui/icons-material/RateReviewOutlined';
+import ScheduleOutlined from '@mui/icons-material/ScheduleOutlined';
 import { StatusChip } from '../components/StatusChip';
-import { formatDuration, timeAgo } from '../lib/format';
+import { formatDuration, formatUsd, timeAgo } from '../lib/format';
 
 function Panel({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -51,15 +53,18 @@ export function DashboardPage() {
   const system = useSystemStatus();
   const c = summary.data?.counts;
 
-  const cards: Array<{ label: string; value?: number; icon: ReactNode; tone?: 'error' | 'success' | 'warning' | 'info' }> = [
+  const cards: Array<{ label: string; value?: number; icon: ReactNode; tone?: 'error' | 'success' | 'warning' | 'info'; to?: string }> = [
     { label: 'Registered streamers', value: c?.streamers, icon: <PeopleAltOutlined fontSize="small" /> },
     { label: 'Live now', value: c?.liveStreamers, icon: <SensorsOutlined fontSize="small" />, tone: 'error' },
     { label: 'Waiting for processing', value: c?.sessionsWaiting, icon: <HourglassEmptyOutlined fontSize="small" />, tone: 'warning' },
     { label: 'Processing', value: c?.sessionsProcessing, icon: <SyncOutlined fontSize="small" />, tone: 'info' },
     { label: 'Shorts generated today', value: c?.shortsGeneratedToday, icon: <MovieCreationOutlined fontSize="small" /> },
     { label: 'Shorts published today', value: c?.shortsPublishedToday, icon: <CloudUploadOutlined fontSize="small" />, tone: 'success' },
-    { label: 'Failed jobs', value: c?.failedJobs, icon: <ErrorOutline fontSize="small" />, tone: c?.failedJobs ? 'error' : undefined },
+    { label: 'Awaiting review', value: c?.awaitingReview, icon: <RateReviewOutlined fontSize="small" />, tone: c?.awaitingReview ? 'warning' : undefined, to: '/clips' },
+    { label: 'Queued uploads', value: c?.queuedUploads, icon: <ScheduleOutlined fontSize="small" />, tone: 'info' },
+    { label: 'Failed jobs', value: c?.failedJobs, icon: <ErrorOutline fontSize="small" />, tone: c?.failedJobs ? 'error' : undefined, to: '/jobs?status=FAILED' },
   ];
+  const costs = summary.data?.costs;
 
   const navigate = useNavigate();
   const ready = system.data?.ready;
@@ -77,8 +82,8 @@ export function DashboardPage() {
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {cards.map((card) => (
-          <Grid key={card.label} size={{ xs: 6, sm: 4, md: 3, xl: 'grow' }}>
-            <StatCard {...card} />
+          <Grid key={card.label} size={{ xs: 6, sm: 4, md: 3, xl: 'grow' }} onClick={card.to ? () => navigate(card.to!) : undefined} sx={{ cursor: card.to ? 'pointer' : undefined }}>
+            <StatCard label={card.label} value={card.value} icon={card.icon} tone={card.tone} />
           </Grid>
         ))}
       </Grid>
@@ -149,6 +154,15 @@ export function DashboardPage() {
                 />
               </ListItem>
             )}
+            {costs && (
+              <ListItem disableGutters disablePadding sx={{ mb: 1 }}>
+                <ListItemText
+                  primary={`AI spend this month: ${formatUsd(costs.spentUsd)}${costs.budgetUsd ? ` of ${formatUsd(costs.budgetUsd)}` : ''}`}
+                  secondary={costs.budgetUsd ? (costs.spentUsd >= costs.budgetUsd ? 'Budget reached: AI steps are paused' : 'Processing pauses when the budget is reached') : 'No monthly budget set (Settings → Costs)'}
+                  slotProps={{ secondary: { color: costs.budgetUsd && costs.spentUsd >= costs.budgetUsd ? 'error' : undefined } }}
+                />
+              </ListItem>
+            )}
             <Typography variant="overline" color="text.secondary">
               Workers ({workers.length})
             </Typography>
@@ -189,7 +203,7 @@ export function DashboardPage() {
                 ))}
               </List>
             ) : (
-              <Empty text="No Shorts generated yet (Phase 5)." />
+              <Empty text="No Shorts generated yet." />
             )}
           </Panel>
         </Grid>
@@ -210,16 +224,53 @@ export function DashboardPage() {
                           clip.title
                         )
                       }
-                      secondary={`${clip.streamerName} · published ${timeAgo(clip.publishedAt)}`}
+                      secondary={`${clip.streamerName} · published ${timeAgo(clip.publishedAt)}${clip.views !== null ? ` · ${clip.views.toLocaleString()} views` : ''}`}
                     />
                   </ListItem>
                 ))}
               </List>
             ) : (
-              <Empty text="Nothing published yet (Phase 6)." />
+              <Empty text="Nothing published yet." />
             )}
           </Panel>
         </Grid>
+
+        {summary.data?.topShorts.length ? (
+          <Grid size={{ xs: 12 }}>
+            <Panel title="Top Shorts by views">
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Title</TableCell>
+                    <TableCell>Streamer</TableCell>
+                    <TableCell align="right">Views</TableCell>
+                    <TableCell align="right">Likes</TableCell>
+                    <TableCell align="right">Published</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {summary.data.topShorts.map((clip) => (
+                    <TableRow key={clip.id}>
+                      <TableCell>
+                        {clip.youtubeUrl ? (
+                          <Link href={clip.youtubeUrl} target="_blank" rel="noopener noreferrer">
+                            {clip.title}
+                          </Link>
+                        ) : (
+                          clip.title
+                        )}
+                      </TableCell>
+                      <TableCell>{clip.streamerName}</TableCell>
+                      <TableCell align="right">{(clip.views ?? 0).toLocaleString()}</TableCell>
+                      <TableCell align="right">{(clip.likes ?? 0).toLocaleString()}</TableCell>
+                      <TableCell align="right">{timeAgo(clip.publishedAt)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Panel>
+          </Grid>
+        ) : null}
       </Grid>
     </>
   );

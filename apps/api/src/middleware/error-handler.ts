@@ -42,7 +42,10 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
 export const requireJsonForMutations: RequestHandler = (req, _res, next) => {
   const mutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
   const hasBody = Number(req.headers['content-length'] ?? 0) > 0 || req.headers['transfer-encoding'] !== undefined;
-  if (mutating && hasBody && !req.is('application/json')) {
+  // Binary uploads must send a custom header: browsers can't attach one to a
+  // cross-site form post without a CORS preflight, which our CORS policy denies.
+  const isUpload = req.headers['x-upload-filename'] !== undefined;
+  if (mutating && hasBody && !isUpload && !req.is('application/json')) {
     throw new AppError(415, ErrorCode.UNSUPPORTED_MEDIA_TYPE, 'Content-Type must be application/json');
   }
   next();

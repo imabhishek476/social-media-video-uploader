@@ -33,6 +33,10 @@ const highlightCandidateSchema = new Schema(
     status: { type: String, enum: enumValues(CandidateStatus), default: CandidateStatus.CANDIDATE },
     discardReason: { type: String, default: null },
     analysisProvider: { type: String, default: null },
+    /** Which analysis run produced it (session.reprocessCount at the time). */
+    analysisRound: { type: Number, default: 0 },
+    /** Selected, discarded or trimmed by a person in Clip Studio (survives re-analysis when selected). */
+    userAdjusted: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

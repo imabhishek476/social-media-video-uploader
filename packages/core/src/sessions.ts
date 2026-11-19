@@ -18,7 +18,7 @@ import type { SettingsService } from './settings';
 
 /** Sessions the watcher keeps polling. */
 export const ACTIVE_SESSION_STATES = [SessionStatus.DETECTED, SessionStatus.LIVE] as const;
-const REPROCESSABLE = [SessionStatus.ENDED, SessionStatus.SOURCE_UNAVAILABLE, SessionStatus.FAILED, SessionStatus.COMPLETED, SessionStatus.CANCELLED];
+const REPROCESSABLE = [SessionStatus.ENDED, SessionStatus.SOURCE_READY, SessionStatus.PROCESSING, SessionStatus.HIGHLIGHTS_READY, SessionStatus.SOURCE_UNAVAILABLE, SessionStatus.FAILED, SessionStatus.COMPLETED, SessionStatus.CANCELLED];
 
 export const EndReason = {
   PROVIDER_END_TIME: 'PROVIDER_END_TIME',
@@ -32,6 +32,8 @@ export interface SessionDeps {
   queues: QueueRegistry;
   settings: SettingsService;
   provider: YouTubeMetadataProvider;
+  /** Which object store holds sources (shown in the UI). */
+  storageName?: 'local' | 'gcs';
   logger?: Logger;
 }
 
@@ -240,14 +242,14 @@ export class LiveSessionService {
         .lean(),
       LiveSessionModel.countDocuments(filter),
     ]);
-    return { items: items.map(toSessionDTO), page: q.page, pageSize: q.pageSize, total };
+    return { items: items.map((i) => toSessionDTO(i, this.deps.storageName)), page: q.page, pageSize: q.pageSize, total };
   }
 
   async get(id: string): Promise<LiveSessionDTO> {
     if (!mongoose.isValidObjectId(id)) throw DomainError.notFound('Live session');
     const s = await LiveSessionModel.findById(id).populate('streamerChannelId', 'displayName channelId thumbnailUrl').lean();
     if (!s) throw DomainError.notFound('Live session');
-    return toSessionDTO(s);
+    return toSessionDTO(s, this.deps.storageName);
   }
 
   /** Hand off to Phase 3 (media acquisition). Exactly once per (session, reprocess round). */
@@ -272,7 +274,7 @@ export class LiveSessionService {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function toSessionDTO(s: any): LiveSessionDTO {
+export function toSessionDTO(s: any, storedIn?: 'local' | 'gcs'): LiveSessionDTO {
   const ch = s.streamerChannelId && typeof s.streamerChannelId === 'object' && 'displayName' in s.streamerChannelId ? s.streamerChannelId : null;
   return {
     id: String(s._id),
@@ -296,9 +298,18 @@ export function toSessionDTO(s: any): LiveSessionDTO {
       provider: s.sourceMedia?.provider ?? null,
       status: s.sourceMedia?.status ?? 'PENDING',
       lastError: s.sourceMedia?.lastError ?? null,
+      durationSeconds: s.sourceMedia?.durationSeconds ?? null,
+      fileSizeBytes: s.sourceMedia?.fileSizeBytes ?? null,
+      width: s.sourceMedia?.width ?? null,
+      height: s.sourceMedia?.height ?? null,
+      videoCodec: s.sourceMedia?.videoCodec ?? null,
+      storedIn: s.sourceMedia?.storageKey ? (storedIn ?? null) : null,
     },
     processingStatus: s.processingStatus,
+    processingStage: s.processingStage ?? null,
+    highlightCount: s.highlightCount ?? 0,
     clipCount: s.clipCount ?? 0,
+    estimatedCostUsd: Math.round((s.estimatedCostUsd ?? 0) * 10000) / 10000,
     reprocessCount: s.reprocessCount ?? 0,
     lastError: s.lastError ?? null,
     createdAt: s.createdAt.toISOString(),

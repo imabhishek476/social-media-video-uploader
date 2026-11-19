@@ -20,6 +20,12 @@ const generatedClipSchema = new Schema(
     subtitleKey: { type: String, default: null },
     renderStatus: { type: String, enum: enumValues(RenderStatus), default: RenderStatus.PENDING },
     renderVersion: { type: Number, default: 1 },
+    fileSizeBytes: { type: Number, default: null },
+    width: { type: Number, default: null },
+    height: { type: Number, default: null },
+    renderedAt: { type: Date, default: null },
+    /** When a RENDERING claim was taken; stale claims are reclaimed after a crash. */
+    renderStartedAt: { type: Date, default: null },
 
     title: { type: String, default: '' },
     description: { type: String, default: '' },
@@ -40,6 +46,13 @@ const generatedClipSchema = new Schema(
     youtubeUrl: { type: String, default: null },
     publishedAt: { type: Date, default: null },
 
+    /** YouTube statistics, refreshed periodically after publishing. */
+    stats: {
+      type: new Schema({ views: Number, likes: Number, comments: Number, privacyStatus: String, fetchedAt: Date }, { _id: false }),
+      default: null,
+    },
+    /** Rendered files deleted by retention (the record and YouTube link remain). */
+    filesExpiredAt: { type: Date, default: null },
     lastError: { type: String, default: null },
   },
   { timestamps: true },

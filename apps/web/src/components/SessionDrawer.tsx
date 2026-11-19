@@ -14,8 +14,12 @@ import Replay from '@mui/icons-material/Replay';
 import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { describeError } from '../api/client';
-import { useReprocessSession, useSession } from '../api/hooks';
-import { formatDateTime, formatDuration, humanize } from '../lib/format';
+import { useReprocessSession, useSession, useUploadSource } from '../api/hooks';
+import { formatBytes, formatDateTime, formatDuration, formatUsd, humanize } from '../lib/format';
+import ContentCut from '@mui/icons-material/ContentCut';
+import { useRef, useState } from 'react';
+import LinearProgress from '@mui/material/LinearProgress';
+import UploadFile from '@mui/icons-material/UploadFile';
 import { StatusChip } from './StatusChip';
 
 const END_REASONS: Record<string, string> = {
@@ -42,6 +46,9 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export function SessionDrawer({ sessionId, canEdit, onClose }: { sessionId: string | null; canEdit: boolean; onClose: () => void }) {
   const { data: s, isPending } = useSession(sessionId);
   const reprocess = useReprocessSession();
+  const upload = useUploadSource();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [progress, setProgress] = useState(0);
   const live = s?.status === 'LIVE' || s?.status === 'DETECTED';
   const busy = s?.processingStatus === 'QUEUED' || s?.processingStatus === 'RUNNING';
 
@@ -103,16 +110,66 @@ export function SessionDrawer({ sessionId, canEdit, onClose }: { sessionId: stri
               <StatusChip status={s.sourceMedia.status} />
             </Row>
             {s.sourceMedia.lastError && <Row label="Source error">{s.sourceMedia.lastError}</Row>}
+            {s.sourceMedia.status === 'READY' && (
+              <>
+                <Row label="Recording">
+                  {s.sourceMedia.width}×{s.sourceMedia.height} {s.sourceMedia.videoCodec?.toUpperCase()} · {formatDuration(s.sourceMedia.durationSeconds)} · {formatBytes(s.sourceMedia.fileSizeBytes)}
+                </Row>
+                <Row label="Stored in">{s.sourceMedia.storedIn === 'gcs' ? 'Google Cloud Storage' : 'Local disk'}</Row>
+              </>
+            )}
             <Row label="Processing">
-              <StatusChip status={s.processingStatus} />
+              <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
+                {s.processingStage && <StatusChip status={s.processingStage} />}
+                <StatusChip status={s.processingStatus} />
+              </Stack>
             </Row>
+            <Row label="Highlights">{s.highlightCount}</Row>
             <Row label="Clips generated">{s.clipCount}</Row>
+            <Row label="AI cost (est.)">{formatUsd(s.estimatedCostUsd)}</Row>
             <Row label="Reprocess rounds">{s.reprocessCount}</Row>
 
-            {s.processingStatus === 'QUEUED' && (
-              <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
-                Waiting for media acquisition. The worker for that step arrives in Phase 3, so the job stays queued until then.
+            {s.status === 'SOURCE_UNAVAILABLE' && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                {s.sourceMedia.lastError ?? 'No usable recording yet.'}
               </Alert>
+            )}
+            {s.status === 'SOURCE_READY' && (
+              <Alert severity="success" variant="outlined" sx={{ mt: 2 }}>
+                Recording stored and validated. Transcription and highlight analysis start next.
+              </Alert>
+            )}
+            {s.status === 'HIGHLIGHTS_READY' && (
+              <Button sx={{ mt: 2, mr: 1 }} variant="contained" startIcon={<ContentCut />} component={RouterLink} to={`/clips?session=${s.id}`} onClick={onClose}>
+                Open in Clip Studio
+              </Button>
+            )}
+            {canEdit && !live && s.sourceMedia.status !== 'READY' && (
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  hidden
+                  accept="video/*,.mkv,.ts,.flv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) {
+                      setProgress(0);
+                      upload.mutate({ id: s.id, file, onProgress: setProgress });
+                    }
+                  }}
+                />
+                <Button sx={{ mt: 2, mr: 1 }} variant="contained" startIcon={<UploadFile />} disabled={upload.isPending} onClick={() => fileInput.current?.click()}>
+                  {upload.isPending ? `Uploading… ${progress}%` : 'Upload recording'}
+                </Button>
+                {upload.isPending && <LinearProgress variant="determinate" value={progress} sx={{ mt: 1 }} />}
+                {upload.isError && (
+                  <Alert severity="error" sx={{ mt: 2 }}>
+                    {describeError(upload.error)}
+                  </Alert>
+                )}
+              </>
             )}
 
             {canEdit && (
@@ -126,7 +183,7 @@ export function SessionDrawer({ sessionId, canEdit, onClose }: { sessionId: stri
                   sx={{ mt: 2 }}
                   variant="outlined"
                   startIcon={<Replay />}
-                  disabled={live || busy || reprocess.isPending}
+                  disabled={live || busy || reprocess.isPending || upload.isPending}
                   onClick={() => reprocess.mutate(s.id)}
                 >
                   Reprocess

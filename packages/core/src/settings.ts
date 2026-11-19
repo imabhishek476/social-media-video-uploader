@@ -39,7 +39,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
     subtitles: {
       language: 'en',
       fontFamily: 'Montserrat',
-      fontSize: 64,
+      fontSize: 84,
       primaryColor: '#FFFFFF',
       highlightColor: '#FFD400',
       position: SubtitlePosition.MIDDLE,
@@ -50,13 +50,17 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       dailyUploadLimit: 10,
       minMinutesBetweenUploads: 60,
       categoryId: '20',
+      windowStartHour: 0,
+      windowEndHour: 24,
+      timezone: 'UTC',
     },
+    costs: { monthlyBudgetUsd: 0 },
     providers: {
       transcription: config.integrations.transcription.provider,
       llm: config.integrations.llm.provider,
       videoSource: config.integrations.videoSource.provider,
     },
-    retention: { sourceDays: 7, clipDays: 90, transcriptDays: 90 },
+    retention: { sourceDays: 7, clipDays: 30, transcriptDays: 90, sourceAfterDoneDays: 3 },
   };
 }
 
@@ -85,12 +89,16 @@ export class SettingsService {
   async get(): Promise<AppSettingsDTO> {
     const [{ values, updatedAt }, yt] = await Promise.all([
       this.getValues(),
-      IntegrationCredentialModel.findOne({ provider: 'youtube', status: 'ACTIVE' }).lean(),
+      IntegrationCredentialModel.findOne({ provider: 'youtube' }).lean(),
     ]);
     return {
       ...values,
       youtube: {
-        connected: Boolean(yt),
+        uploadMode: this.config.integrations.youtube.uploadProvider,
+        oauthConfigured: Boolean(this.config.integrations.youtube.clientId && this.config.integrations.youtube.clientSecret && this.config.encryptionKey),
+        status: (yt?.status as 'ACTIVE' | 'REVOKED' | 'ERROR' | undefined) ?? null,
+        lastError: yt?.lastError ?? null,
+        connected: yt?.status === 'ACTIVE',
         channelId: yt?.accountId ?? null,
         channelTitle: yt?.accountTitle ?? null,
         connectedAt: yt?.connectedAt ? yt.connectedAt.toISOString() : null,

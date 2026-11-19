@@ -25,3 +25,27 @@ export function formatDuration(totalSeconds: number | null | undefined): string 
 }
 
 export const humanize = (value: string) => value.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) (v /= 1024), i++;
+  return `${v.toFixed(i > 1 ? 1 : 0)} ${units[i]}`;
+}
+
+/** Video timestamp: 1:02:03 or 2:03, with tenths when `precise`. */
+export function formatClock(totalSeconds: number, precise = false): string {
+  const t = Math.max(0, totalSeconds);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  const sec = precise ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
+  return `${h > 0 ? `${h}:${String(m).padStart(2, '0')}` : m}:${sec}`;
+}
+
+export function formatUsd(v: number | null | undefined): string {
+  if (!v) return '$0.00';
+  return v < 0.01 ? '<$0.01' : `$${v.toFixed(2)}`;
+}

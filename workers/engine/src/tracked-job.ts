@@ -1,6 +1,6 @@
 import { ProcessingJobModel } from '@shorts/database';
 import type { Logger } from '@shorts/observability';
-import { UnrecoverableError, type Job } from '@shorts/queue';
+import { DelayedError, UnrecoverableError, type Job } from '@shorts/queue';
 import { JobStatus, jobTypeForQueue, type QueueName } from '@shorts/shared-types';
 
 /** Payload fields every pipeline job carries so it can be mirrored to MongoDB. */
@@ -13,6 +13,8 @@ export interface JobContext {
   job: Job;
   logger: Logger;
   reportProgress: (percent: number) => Promise<void>;
+  /** Re-run this job at `until` without counting a failed attempt. */
+  defer: (until: Date, reason: string) => Promise<never>;
 }
 
 export type TrackedHandler<T extends TrackedJobData, R> = (data: T, ctx: JobContext) => Promise<R>;
@@ -42,7 +44,7 @@ export function tracked<T extends TrackedJobData, R>(
 ) {
   const jobType = jobTypeForQueue(queueName);
 
-  return async (job: Job<T>): Promise<R> => {
+  return async (job: Job<T>, token?: string): Promise<R> => {
     const key = `${queueName}__${job.id}`;
     const attempt = job.attemptsMade + 1;
     const maxAttempts = job.opts.attempts ?? 1;
@@ -69,8 +71,15 @@ export function tracked<T extends TrackedJobData, R>(
       await Promise.all([job.updateProgress(p), ProcessingJobModel.updateOne({ idempotencyKey: key }, { $set: { progress: p } })]);
     };
 
+    const defer = async (until: Date, reason: string): Promise<never> => {
+      await ProcessingJobModel.updateOne({ idempotencyKey: key }, { $set: { status: JobStatus.PENDING, lastError: `Deferred until ${until.toISOString()}: ${reason}`.slice(0, 2000) } });
+      logger.info({ until: until.toISOString(), reason }, 'Job deferred');
+      await job.moveToDelayed(until.getTime(), token);
+      throw new DelayedError(reason);
+    };
+
     try {
-      const result = await handler(job.data, { job, logger, reportProgress });
+      const result = await handler(job.data, { job, logger, reportProgress, defer });
       await ProcessingJobModel.updateOne(
         { idempotencyKey: key },
         { $set: { status: JobStatus.COMPLETED, progress: 100, completedAt: new Date(), result: result ?? null } },
@@ -78,6 +87,7 @@ export function tracked<T extends TrackedJobData, R>(
       logger.info('Job completed');
       return result;
     } catch (err) {
+      if (err instanceof DelayedError) throw err; // not a failure: BullMQ re-runs it later
       const e = err as Error;
       const permanent = err instanceof PipelineError ? err.permanent : err instanceof UnrecoverableError;
       const willRetry = !permanent && attempt < maxAttempts;

@@ -46,6 +46,10 @@ services:
       MONGODB_URI: mongodb://mongo:27017/ai_shorts
       REDIS_URL: redis://redis:6379
       WEB_ORIGIN: http://localhost:8081
+      STORAGE_DIR: /data/storage
+    volumes:
+      # Shared with the worker: dashboard uploads land here for acquisition.
+      - media-data:/data/storage
     ports:
       - "8080:8080"
     depends_on:

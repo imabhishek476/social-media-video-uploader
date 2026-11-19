@@ -16,6 +16,9 @@ const transcriptSchema = new Schema(
     durationSeconds: { type: Number, default: null },
     segmentCount: { type: Number, default: 0 },
     chunkCount: { type: Number, default: 0 },
+    /** Loudness per second of audio (dBFS), used to score highlights. */
+    loudness: { type: [Number], default: [], select: false },
+    costUsd: { type: Number, default: 0 },
     /** Optional full transcript in object storage (e.g. JSON/VTT). */
     storageKey: { type: String, default: null },
   },

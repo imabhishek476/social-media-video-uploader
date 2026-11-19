@@ -8,8 +8,10 @@ import { recordAudit } from '../services/audit.service';
 import { AuthService, SESSION_COOKIE } from '../services/auth.service';
 import { getDashboardSummary } from '../services/dashboard.service';
 import { getJob, jobListQuerySchema, listJobs } from '../services/jobs.service';
-import { ChannelService, LiveSessionService, SettingsService } from '@shorts/core';
-import { MockYouTubeProvider } from '@shorts/integrations';
+import { CandidateService, ChannelService, ClipService, PublishService, YouTubeAccountService, LiveSessionService, SettingsService } from '@shorts/core';
+import { MockYouTubeProvider, YouTubeOAuthClient, createMetadataGenerator, createObjectStorage } from '@shorts/integrations';
+import { createPublishRoutes, createYouTubeCallbackRoute, createYouTubeRoutes } from './youtube';
+import { createClipRoutes, createHighlightRoutes, createSessionAnalysisRoutes } from './highlights';
 import { getReadiness, getSystemStatus } from '../services/system.service';
 import { createMockYouTubeRoutes } from './dev';
 import { createSessionRoutes } from './sessions';
@@ -26,7 +28,19 @@ export function createV1Router(deps: AppDeps): Router {
   const auth = new AuthService(deps.config);
   const settings = new SettingsService(deps.config);
   const channels = new ChannelService(deps.youtube.provider);
-  const sessions = new LiveSessionService({ queues: deps.queues, settings, provider: deps.youtube.provider, logger: deps.logger });
+  const sessions = new LiveSessionService({ queues: deps.queues, settings, provider: deps.youtube.provider, storageName: deps.config.integrations.storage.provider, logger: deps.logger });
+  const candidates = new CandidateService(settings);
+  const storage = createObjectStorage(deps.config);
+  const yt = deps.config.integrations.youtube;
+  const account = new YouTubeAccountService({
+    oauth: yt.clientId && yt.clientSecret ? new YouTubeOAuthClient({ clientId: yt.clientId, clientSecret: yt.clientSecret, redirectUri: yt.redirectUri }) : null,
+    redis: deps.redis,
+    encryptionKey: deps.config.encryptionKey,
+    uploaderName: yt.uploadProvider,
+    logger: deps.logger,
+  });
+  const publish = new PublishService({ settings, queues: deps.queues, account, metadata: createMetadataGenerator(deps.config), logger: deps.logger });
+  const clipService = new ClipService(storage);
   const authenticated = requireAuth(auth);
   const adminOnly = requireRole(UserRole.ADMIN);
 
@@ -80,6 +94,8 @@ export function createV1Router(deps: AppDeps): Router {
     }
   });
 
+  router.get('/integrations/youtube/callback', loginLimiter, createYouTubeCallbackRoute(account, deps.config.webOrigin, deps.logger));
+
   // --- Authenticated --------------------------------------------------------
   router.use(apiLimiter, authenticated);
 
@@ -95,7 +111,7 @@ export function createV1Router(deps: AppDeps): Router {
   });
 
   router.get('/dashboard/summary', async (_req, res) => {
-    res.json(await getDashboardSummary());
+    res.json(await getDashboardSummary(settings));
   });
 
   router.get('/system/status', async (_req, res) => {
@@ -111,7 +127,14 @@ export function createV1Router(deps: AppDeps): Router {
   });
 
   router.use('/streamers', createStreamerRoutes(channels, adminOnly));
-  router.use('/live-sessions', createSessionRoutes(sessions, adminOnly));
+  router.use('/live-sessions', createSessionAnalysisRoutes(sessions, candidates, storage));
+  router.use('/highlights', createHighlightRoutes(candidates, adminOnly));
+  const clipRoutes = createClipRoutes(clipService, storage, deps.queues, sessions, adminOnly);
+  router.use('/live-sessions', clipRoutes.sessionRouter);
+  router.use('/clips', clipRoutes.clipRouter);
+  router.use('/clips', createPublishRoutes(publish, clipService, adminOnly));
+  router.use('/integrations/youtube', createYouTubeRoutes(account, adminOnly));
+  router.use('/live-sessions', createSessionRoutes(sessions, settings, deps.config.worker.storageDir, adminOnly));
   if (deps.youtube.provider instanceof MockYouTubeProvider) {
     router.use('/dev/mock-youtube', adminOnly, createMockYouTubeRoutes(deps.youtube.provider));
   }

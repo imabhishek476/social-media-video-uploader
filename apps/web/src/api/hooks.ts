@@ -1,7 +1,14 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AppSettingsDTO,
+  CandidateUpdateInput,
+  ClipMetadataInput,
+  ClipMediaDTO,
+  GeneratedClipDTO,
   CreateStreamerInput,
+  HighlightCandidateDTO,
+  SourcePreviewDTO,
+  TranscriptDTO,
   LiveSessionDTO,
   LiveStatus,
   SessionStatus,
@@ -17,7 +24,7 @@ import type {
   SystemStatusDTO,
   UserDTO,
 } from '@shorts/shared-types';
-import { ApiError, api } from './client';
+import { ApiError, api, uploadFile } from './client';
 
 /** All server state lives in React Query; components only call these hooks. */
 
@@ -234,3 +241,127 @@ export function useMockLiveControl() {
     onSuccess: invalidate,
   });
 }
+
+export function useUploadSource() {
+  const invalidate = useInvalidateLive();
+  return useMutation({
+    mutationFn: ({ id, file, onProgress }: { id: string; file: File; onProgress: (pct: number) => void }) =>
+      uploadFile<LiveSessionDTO>(`/live-sessions/${id}/source`, file, onProgress),
+    onSuccess: invalidate,
+  });
+}
+
+// --- Clip Studio (Phase 4) ---------------------------------------------------
+
+export function useHighlights(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['highlights', sessionId],
+    queryFn: async () => (await api<{ items: HighlightCandidateDTO[] }>(`/live-sessions/${sessionId}/highlights`)).items,
+    enabled: Boolean(sessionId),
+  });
+}
+
+export function useTranscript(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['transcript', sessionId],
+    queryFn: () => api<TranscriptDTO>(`/live-sessions/${sessionId}/transcript`),
+    enabled: Boolean(sessionId),
+    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSourcePreview(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['source-preview', sessionId],
+    queryFn: () => api<SourcePreviewDTO>(`/live-sessions/${sessionId}/source/preview`),
+    enabled: Boolean(sessionId),
+    retry: false,
+    // Signed URLs last 2 hours; refresh well before.
+    staleTime: 60 * 60_000,
+  });
+}
+
+export function useUpdateHighlight() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: CandidateUpdateInput }) => api<HighlightCandidateDTO>(`/highlights/${id}`, { method: 'PATCH', body: input }),
+    onSuccess: (updated) => {
+      qc.setQueryData<HighlightCandidateDTO[]>(['highlights', updated.liveSessionId], (old) => old?.map((c) => (c.id === updated.id ? updated : c)));
+      void qc.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+}
+
+// --- Rendered Shorts (Phase 5) ------------------------------------------------
+
+/** Polls while the session is rendering or any clip is still in progress. */
+export function useClips(sessionId: string | null, sessionRendering: boolean) {
+  return useQuery({
+    queryKey: ['clips', sessionId],
+    queryFn: async () => (await api<{ items: GeneratedClipDTO[] }>(`/live-sessions/${sessionId}/clips`)).items,
+    enabled: Boolean(sessionId),
+    refetchInterval: (q) =>
+      sessionRendering || (q.state.data ?? []).some((c) => ['RENDERING', 'PENDING'].includes(c.renderStatus) || ['QUEUED', 'UPLOADING'].includes(c.uploadStatus) || (c.renderStatus === 'RENDERED' && !c.title && !c.lastError))
+        ? 4000
+        : false,
+  });
+}
+
+export function useClipMedia(clipId: string | null, version: number | null) {
+  return useQuery({
+    queryKey: ['clip-media', clipId, version],
+    queryFn: () => api<ClipMediaDTO>(`/clips/${clipId}/media`),
+    enabled: Boolean(clipId),
+    staleTime: 60 * 60_000,
+    retry: false,
+  });
+}
+
+export function useRenderSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, force }: { sessionId: string; force?: boolean }) =>
+      api<{ queued: boolean }>(`/live-sessions/${sessionId}/render`, { method: 'POST', body: { force: Boolean(force) } }),
+    onSuccess: (_d, { sessionId }) => {
+      void qc.invalidateQueries({ queryKey: ['clips', sessionId] });
+      void qc.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+}
+
+// --- Publishing (Phase 6) -----------------------------------------------------
+
+export function useConnectYouTube() {
+  return useMutation({
+    mutationFn: () => api<{ url: string }>('/integrations/youtube/connect'),
+    // Full-page redirect to Google's consent screen.
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
+}
+
+export function useDisconnectYouTube() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>('/integrations/youtube', { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings }),
+  });
+}
+
+function useClipMutation<V>(fn: (v: V) => Promise<GeneratedClipDTO>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (clip) => {
+      qc.setQueryData<GeneratedClipDTO[]>(['clips', clip.liveSessionId], (old) => old?.map((c) => (c.id === clip.id ? clip : c)));
+      void qc.invalidateQueries({ queryKey: ['clips', clip.liveSessionId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+    },
+  });
+}
+
+export const useUpdateClipMetadata = () =>
+  useClipMutation(({ id, input }: { id: string; input: ClipMetadataInput }) => api<GeneratedClipDTO>(`/clips/${id}`, { method: 'PATCH', body: input }));
+export const useRegenerateMetadata = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/metadata`, { method: 'POST', body: {} }));
+export const useApproveClip = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/approve`, { method: 'POST', body: {} }));
+export const useRejectClip = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/reject`, { method: 'POST', body: {} }));

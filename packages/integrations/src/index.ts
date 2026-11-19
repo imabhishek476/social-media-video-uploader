@@ -10,6 +10,7 @@ export * from './youtube/parse';
 export * from './youtube/quota';
 export { YouTubeDataApiProvider } from './youtube/data-api-provider';
 export { MockYouTubeProvider, type MockEndMode } from './youtube/mock-provider';
+export * from './youtube/publish';
 
 export interface YouTubeIntegration {
   provider: YouTubeMetadataProvider;
@@ -26,3 +27,6 @@ export function createYouTubeIntegration(config: AppConfig, redis: Redis): YouTu
       : new MockYouTubeProvider();
   return { provider, quota };
 }
+export * from './storage';
+export * from './ai';
+export * from './notify';

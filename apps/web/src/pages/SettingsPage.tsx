@@ -22,7 +22,9 @@ import {
   type AppSettingsInput,
 } from '@shorts/shared-types';
 import { describeError } from '../api/client';
-import { useMe, useSettings, useUpdateSettings } from '../api/hooks';
+import { useConnectYouTube, useDisconnectYouTube, useMe, useSettings, useUpdateSettings } from '../api/hooks';
+import { useSearchParams } from 'react-router-dom';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PageHeader } from '../components/PageHeader';
 import { formatDateTime, humanize } from '../lib/format';
 
@@ -92,10 +94,19 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
     fields: [
       { key: 'mode', label: 'Publishing mode', kind: 'select', options: enumValues(PublishingMode) },
       { key: 'privacyStatus', label: 'Default privacy', kind: 'select', options: enumValues(PrivacyStatus) },
-      { key: 'dailyUploadLimit', label: 'Daily upload limit', kind: 'number' },
+      { key: 'dailyUploadLimit', label: 'Daily upload limit', kind: 'number', helper: '0 = no limit' },
       { key: 'minMinutesBetweenUploads', label: 'Min gap between uploads', kind: 'number', unit: 'min' },
       { key: 'categoryId', label: 'YouTube category ID', kind: 'text', helper: '20 = Gaming, 24 = Entertainment' },
+      { key: 'windowStartHour', label: 'Publish window start', kind: 'number', unit: 'h', helper: 'Uploads only start from this hour…' },
+      { key: 'windowEndHour', label: 'Publish window end', kind: 'number', unit: 'h', helper: '…until this hour. 0–24 = any time' },
+      { key: 'timezone', label: 'Time zone', kind: 'text', helper: 'IANA name, e.g. Asia/Kolkata' },
     ],
+  },
+  {
+    section: 'costs',
+    title: 'Costs',
+    description: 'Transcription and LLM steps pause when this month\'s estimated AI spend reaches the budget.',
+    fields: [{ key: 'monthlyBudgetUsd', label: 'Monthly AI budget', kind: 'number', unit: 'USD', helper: '0 = no cap' }],
   },
   {
     section: 'providers',
@@ -115,6 +126,7 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
       { key: 'sourceDays', label: 'Source videos', kind: 'number', unit: 'days' },
       { key: 'clipDays', label: 'Rendered clips', kind: 'number', unit: 'days' },
       { key: 'transcriptDays', label: 'Transcripts', kind: 'number', unit: 'days' },
+      { key: 'sourceAfterDoneDays', label: 'Source after all Shorts done', kind: 'number', unit: 'days', helper: 'Once every Short is published or rejected' },
     ],
   },
 ];
@@ -128,6 +140,11 @@ export function SettingsPage() {
   const canEdit = me?.role === UserRole.ADMIN;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saved, setSaved] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const connect = useConnectYouTube();
+  const disconnect = useDisconnectYouTube();
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const oauthResult = params.get('youtube') === 'connected' ? { ok: true, text: `Connected ${params.get('channel') ?? 'the channel'}.` } : params.get('youtube_error') ? { ok: false, text: params.get('youtube_error')! } : null;
 
   useEffect(() => {
     if (settings.data && !draft) {
@@ -195,21 +212,72 @@ export function SettingsPage() {
       )}
       {settings.isError && <Alert severity="error">{describeError(settings.error)}</Alert>}
 
+      {oauthResult && (
+        <Alert severity={oauthResult.ok ? 'success' : 'error'} sx={{ mb: 2 }} onClose={() => setParams({}, { replace: true })}>
+          YouTube: {oauthResult.text}
+        </Alert>
+      )}
       <Card variant="outlined" sx={{ mb: 2 }}>
         <CardHeader
           title="Central YouTube channel"
-          subheader="OAuth connection for the single destination channel. Available in Phase 6."
-          action={yt && <Chip size="small" color={yt.connected ? 'success' : 'default'} label={yt.connected ? 'Connected' : 'Not connected'} />}
+          subheader="Every approved Short uploads to this one channel."
+          action={
+            yt && (
+              <Chip
+                size="small"
+                color={yt.uploadMode === 'mock' ? 'warning' : yt.connected ? 'success' : yt.status === 'ERROR' ? 'error' : 'default'}
+                label={yt.uploadMode === 'mock' ? 'Simulated uploads' : yt.connected ? 'Connected' : yt.status === 'ERROR' ? 'Needs reconnect' : 'Not connected'}
+              />
+            )
+          }
           slotProps={{ title: { variant: 'subtitle1', sx: { fontWeight: 600 } } }}
         />
-        {yt?.connected && (
+        {yt && (
           <CardContent sx={{ pt: 0 }}>
-            <Typography variant="body2">
-              {yt.channelTitle} ({yt.channelId}) · connected {formatDateTime(yt.connectedAt)}
-            </Typography>
+            {yt.uploadMode === 'mock' ? (
+              <Typography variant="body2" color="text.secondary">
+                No YouTube OAuth client is configured, so uploads are simulated (fake video ids). Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET to .env and restart to publish for real.
+              </Typography>
+            ) : (
+              <Stack spacing={1.5}>
+                {yt.channelTitle && (
+                  <Typography variant="body2">
+                    {yt.channelTitle} ({yt.channelId}) · connected {formatDateTime(yt.connectedAt)}
+                  </Typography>
+                )}
+                {yt.status === 'ERROR' && yt.lastError && <Alert severity="error">{yt.lastError}</Alert>}
+                {!yt.oauthConfigured && <Alert severity="warning">OAuth client or ENCRYPTION_KEY is missing in .env.</Alert>}
+                {canEdit && yt.oauthConfigured && (
+                  <Stack direction="row" spacing={1}>
+                    <Button variant={yt.connected ? 'outlined' : 'contained'} disabled={connect.isPending} onClick={() => connect.mutate()}>
+                      {yt.connected ? 'Reconnect' : yt.status === 'ERROR' ? 'Reconnect channel' : 'Connect YouTube channel'}
+                    </Button>
+                    {yt.channelId && (
+                      <Button color="error" disabled={disconnect.isPending} onClick={() => setConfirmDisconnect(true)}>
+                        Disconnect
+                      </Button>
+                    )}
+                  </Stack>
+                )}
+                {(connect.isError || disconnect.isError) && <Alert severity="error">{describeError(connect.error ?? disconnect.error)}</Alert>}
+              </Stack>
+            )}
           </CardContent>
         )}
       </Card>
+      <ConfirmDialog
+        open={confirmDisconnect}
+        title="Disconnect YouTube channel?"
+        body="Uploads stop until a channel is connected again. Already published Shorts stay on YouTube."
+        confirmLabel="Disconnect"
+        danger
+        busy={disconnect.isPending}
+        onClose={() => setConfirmDisconnect(false)}
+        onConfirm={() => {
+          setConfirmDisconnect(false);
+          disconnect.mutate();
+        }}
+      />
 
       {!draft ? (
         <Skeleton variant="rounded" height={400} />

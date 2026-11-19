@@ -1,5 +1,6 @@
 import type {
   ApprovalStatus,
+  CandidateStatus,
   JobStatus,
   JobType,
   LiveStatus,
@@ -102,6 +103,9 @@ export interface ClipSummaryDTO {
   youtubeUrl: string | null;
   createdAt: string;
   publishedAt: string | null;
+  liveSessionId: string;
+  views: number | null;
+  likes: number | null;
 }
 
 export interface DashboardSummaryDTO {
@@ -113,7 +117,13 @@ export interface DashboardSummaryDTO {
     shortsGeneratedToday: number;
     shortsPublishedToday: number;
     failedJobs: number;
+    /** Rendered Shorts with metadata waiting for an admin to approve or reject. */
+    awaitingReview: number;
+    /** Approved and waiting for a publish slot or uploading. */
+    queuedUploads: number;
   };
+  costs: { spentUsd: number; budgetUsd: number };
+  topShorts: ClipSummaryDTO[];
   recentSessions: LiveSessionSummaryDTO[];
   latestClips: ClipSummaryDTO[];
   recentUploads: ClipSummaryDTO[];
@@ -145,6 +155,12 @@ export interface ProcessingJobDTO {
 }
 
 export interface YouTubeConnectionDTO {
+  /** `mock` = uploads are simulated (no OAuth client configured). */
+  uploadMode: 'youtube' | 'mock';
+  /** OAuth client id/secret are configured, so Connect can be used. */
+  oauthConfigured: boolean;
+  status: 'ACTIVE' | 'REVOKED' | 'ERROR' | null;
+  lastError: string | null;
   connected: boolean;
   channelId: string | null;
   channelTitle: string | null;
@@ -207,9 +223,22 @@ export interface LiveSessionDTO {
   lastObservedLiveAt: string | null;
   endConfirmationCount: number;
   endReason: string | null;
-  sourceMedia: { provider: string | null; status: string; lastError: string | null };
+  sourceMedia: {
+    provider: string | null;
+    status: string;
+    lastError: string | null;
+    durationSeconds: number | null;
+    fileSizeBytes: number | null;
+    width: number | null;
+    height: number | null;
+    videoCodec: string | null;
+    storedIn: 'local' | 'gcs' | null;
+  };
   processingStatus: ProcessingStatus;
+  processingStage: string | null;
+  highlightCount: number;
   clipCount: number;
+  estimatedCostUsd: number;
   reprocessCount: number;
   lastError: string | null;
   createdAt: string;
@@ -230,4 +259,82 @@ export interface MockChannelDTO {
   handle: string | null;
   title: string;
   live: { videoId: string; title: string; startedAt: string } | null;
+}
+
+export interface HighlightCandidateDTO {
+  id: string;
+  liveSessionId: string;
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+  keyMomentSeconds: number | null;
+  score: number;
+  scoreBreakdown: Record<string, number>;
+  reason: string;
+  hook: string;
+  topic: string | null;
+  transcriptExcerpt: string;
+  status: CandidateStatus;
+  discardReason: string | null;
+  analysisProvider: string | null;
+  userAdjusted: boolean;
+  createdAt: string;
+}
+
+export interface TranscriptSegmentDTO {
+  startSeconds: number;
+  endSeconds: number;
+  text: string;
+}
+
+export interface TranscriptDTO {
+  liveSessionId: string;
+  provider: string;
+  language: string;
+  durationSeconds: number | null;
+  segmentCount: number;
+  segments: TranscriptSegmentDTO[];
+}
+
+export interface SourcePreviewDTO {
+  url: string;
+  expiresAt: string | null;
+}
+
+export interface GeneratedClipDTO {
+  id: string;
+  liveSessionId: string;
+  highlightCandidateId: string;
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+  highlightScore: number | null;
+  reframingMode: string;
+  renderStatus: RenderStatus;
+  renderVersion: number;
+  fileSizeBytes: number | null;
+  width: number | null;
+  height: number | null;
+  renderedAt: string | null;
+  approvalStatus: ApprovalStatus;
+  approvedAt: string | null;
+  uploadStatus: UploadStatus;
+  title: string;
+  description: string;
+  tags: string[];
+  metadataEditedByUser: boolean;
+  scheduledPublishAt: string | null;
+  youtubeVideoId: string | null;
+  youtubeUrl: string | null;
+  publishedAt: string | null;
+  stats: { views: number; likes: number; comments: number; privacyStatus: string | null; fetchedAt: string } | null;
+  filesExpired: boolean;
+  lastError: string | null;
+  createdAt: string;
+}
+
+export interface ClipMediaDTO {
+  videoUrl: string;
+  thumbnailUrl: string | null;
+  expiresAt: string | null;
 }

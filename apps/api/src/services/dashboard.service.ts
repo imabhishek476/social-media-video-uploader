@@ -1,4 +1,5 @@
 import { GeneratedClipModel, LiveSessionModel, ProcessingJobModel, StreamerChannelModel } from '@shorts/database';
+import { monthToDateSpendUsd, type SettingsService } from '@shorts/core';
 import {
   JobStatus,
   LiveStatus,
@@ -35,6 +36,8 @@ type PopulatedClip = {
   youtubeUrl?: string | null;
   createdAt: Date;
   publishedAt?: Date | null;
+  liveSessionId: unknown;
+  stats?: { views?: number; likes?: number } | null;
 };
 
 function toClipSummary(c: PopulatedClip): ClipSummaryDTO {
@@ -49,10 +52,13 @@ function toClipSummary(c: PopulatedClip): ClipSummaryDTO {
     youtubeUrl: c.youtubeUrl ?? null,
     createdAt: c.createdAt.toISOString(),
     publishedAt: iso(c.publishedAt),
+    liveSessionId: String(c.liveSessionId),
+    views: c.stats?.views ?? null,
+    likes: c.stats?.likes ?? null,
   };
 }
 
-export async function getDashboardSummary(): Promise<DashboardSummaryDTO> {
+export async function getDashboardSummary(settings: SettingsService): Promise<DashboardSummaryDTO> {
   const today = startOfToday();
   const [
     streamers,
@@ -65,6 +71,11 @@ export async function getDashboardSummary(): Promise<DashboardSummaryDTO> {
     sessions,
     clips,
     uploads,
+    awaitingReview,
+    queuedUploads,
+    spentUsd,
+    values,
+    top,
   ] = await Promise.all([
     StreamerChannelModel.countDocuments(),
     StreamerChannelModel.countDocuments({ liveStatus: LiveStatus.LIVE }),
@@ -77,6 +88,15 @@ export async function getDashboardSummary(): Promise<DashboardSummaryDTO> {
     GeneratedClipModel.find().sort({ createdAt: -1 }).limit(5).populate('streamerChannelId', 'displayName').lean(),
     GeneratedClipModel.find({ uploadStatus: UploadStatus.PUBLISHED })
       .sort({ publishedAt: -1 })
+      .limit(5)
+      .populate('streamerChannelId', 'displayName')
+      .lean(),
+    GeneratedClipModel.countDocuments({ renderStatus: RenderStatus.RENDERED, approvalStatus: 'PENDING', title: { $ne: '' }, filesExpiredAt: null }),
+    GeneratedClipModel.countDocuments({ uploadStatus: { $in: [UploadStatus.QUEUED, UploadStatus.UPLOADING] } }),
+    monthToDateSpendUsd(),
+    settings.getValues(),
+    GeneratedClipModel.find({ uploadStatus: UploadStatus.PUBLISHED, 'stats.views': { $gt: 0 } })
+      .sort({ 'stats.views': -1 })
       .limit(5)
       .populate('streamerChannelId', 'displayName')
       .lean(),
@@ -102,7 +122,11 @@ export async function getDashboardSummary(): Promise<DashboardSummaryDTO> {
       shortsGeneratedToday,
       shortsPublishedToday,
       failedJobs,
+      awaitingReview,
+      queuedUploads,
     },
+    costs: { spentUsd, budgetUsd: values.values.costs.monthlyBudgetUsd },
+    topShorts: (top as unknown as PopulatedClip[]).map(toClipSummary),
     recentSessions,
     latestClips: (clips as unknown as PopulatedClip[]).map(toClipSummary),
     recentUploads: (uploads as unknown as PopulatedClip[]).map(toClipSummary),

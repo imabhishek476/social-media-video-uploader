@@ -2,7 +2,7 @@ import { Queue, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 import { ALL_QUEUE_NAMES, type QueueCountsDTO, type QueueName, type WorkerHeartbeatDTO } from '@shorts/shared-types';
 
-export { Queue, Worker, QueueEvents, UnrecoverableError, type Job, type JobsOptions, type Processor } from 'bullmq';
+export { Queue, Worker, QueueEvents, UnrecoverableError, DelayedError, type Job, type JobsOptions, type Processor } from 'bullmq';
 export { Redis } from 'ioredis';
 
 /** BullMQ requires `maxRetriesPerRequest: null` on blocking connections. */
