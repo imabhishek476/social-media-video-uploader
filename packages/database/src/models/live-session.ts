@@ -18,6 +18,8 @@ const sourceMediaSchema = new Schema(
     videoCodec: { type: String, default: null },
     readyAt: { type: Date, default: null },
     lastError: { type: String, default: null },
+    /** Live progress while a long download runs (cleared when done). */
+    progress: { type: Schema.Types.Mixed, default: null },
   },
   { _id: false },
 );

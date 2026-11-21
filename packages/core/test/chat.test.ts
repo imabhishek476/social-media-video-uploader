@@ -83,3 +83,15 @@ describe('chat scoring', () => {
     expect(blendSignals(60, { audio: 50, audioWeight: 0.15, chat: null, chatWeight: 0.2 })).toBe(Math.round(60 * 0.85 + 7.5));
   });
 });
+
+describe('YtDlpProgress', () => {
+  it('maps video then audio progress onto one overall percentage', async () => {
+    const { YtDlpProgress } = await import('../src');
+    const t = new YtDlpProgress();
+    expect(t.parse('[download] something else')).toBeNull();
+    expect(t.parse('PROGRESS 399 500 1000 NA 4194304 120')).toMatchObject({ phase: 'DOWNLOADING', percent: 46, downloadedBytes: 500, totalBytes: 1000, speedBytesPerSec: 4194304, etaSeconds: 120 });
+    expect(t.parse('PROGRESS 399 1000 NA 1000 NA NA')?.percent).toBe(92);
+    expect(t.parse('PROGRESS 140 50 100 NA NA 3')?.percent).toBe(95.5);
+    expect(t.parse('PROGRESS 140 10 NA NA NA NA')).toMatchObject({ percent: null, totalBytes: null });
+  });
+});

@@ -21,6 +21,7 @@ import { useRef, useState } from 'react';
 import LinearProgress from '@mui/material/LinearProgress';
 import UploadFile from '@mui/icons-material/UploadFile';
 import Tooltip from '@mui/material/Tooltip';
+import { SourceProgressBar } from './SourceProgressBar';
 import { StatusChip } from './StatusChip';
 
 const END_REASONS: Record<string, string> = {
@@ -111,6 +112,7 @@ export function SessionDrawer({ sessionId, canEdit, onClose }: { sessionId: stri
             <Row label="Source media">
               <StatusChip status={s.sourceMedia.status} />
             </Row>
+            <SourceProgressBar progress={s.sourceMedia.progress} />
             {s.sourceMedia.lastError && <Row label="Source error">{s.sourceMedia.lastError}</Row>}
             {s.sourceMedia.status === 'READY' && (
               <>

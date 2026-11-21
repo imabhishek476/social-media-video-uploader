@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography';
 import ErrorOutline from '@mui/icons-material/ErrorOutline';
 import type { LiveSessionDTO, Paginated } from '@shorts/shared-types';
 import { formatDateTime, formatDuration, timeAgo } from '../lib/format';
+import { SourceProgressBar } from './SourceProgressBar';
 import { StatusChip } from './StatusChip';
 
 interface SessionsTableProps {
@@ -70,6 +71,7 @@ export function SessionsTable({ data, loading, showStreamer = true, onSelect, on
                 </TableCell>
                 <TableCell>
                   <StatusChip status={s.sourceMedia.status} />
+                  <SourceProgressBar progress={s.sourceMedia.progress} compact />
                 </TableCell>
                 <TableCell>
                   <StatusChip status={s.processingStatus} />

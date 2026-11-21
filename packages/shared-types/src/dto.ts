@@ -243,6 +243,15 @@ export interface LiveSessionDTO {
     height: number | null;
     videoCodec: string | null;
     storedIn: 'local' | 'gcs' | null;
+    progress: {
+      phase: 'DOWNLOADING' | 'MERGING' | 'STORING';
+      percent: number | null;
+      downloadedBytes: number | null;
+      totalBytes: number | null;
+      speedBytesPerSec: number | null;
+      etaSeconds: number | null;
+      updatedAt: string;
+    } | null;
   };
   processingStatus: ProcessingStatus;
   processingStage: string | null;

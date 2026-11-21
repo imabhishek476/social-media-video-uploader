@@ -6,7 +6,7 @@ import type { Logger } from '@shorts/observability';
 import { ProcessingStatus, SessionStatus, SourceMediaStatus } from '@shorts/shared-types';
 import { MediaProbeError, probeMedia, validateMedia } from './ffprobe';
 import type { SettingsService } from './settings';
-import type { VideoSourceProvider } from './source-provider';
+import type { SourceProgress, SourceRef, VideoSourceProvider } from './source-provider';
 
 export interface AcquisitionDeps {
   settings: SettingsService;
@@ -51,7 +51,22 @@ export class AcquisitionService {
       { $set: { status: SessionStatus.SOURCE_PENDING, processingStatus: ProcessingStatus.RUNNING, 'sourceMedia.status': SourceMediaStatus.DOWNLOADING, 'sourceMedia.provider': source.name, 'sourceMedia.lastError': null, lastError: null } },
     );
 
-    const ref = await source.locate({ id: sessionId, broadcastId: session.broadcastId });
+    // Throttled progress for long downloads, shown on the session page.
+    let lastWrite = 0;
+    const setProgress = (p: SourceProgress | null, force = false) => {
+      const now = Date.now();
+      if (!force && now - lastWrite < 3000) return;
+      lastWrite = now;
+      void LiveSessionModel.updateOne({ _id: sessionId }, { $set: { 'sourceMedia.progress': p ? { ...p, updatedAt: new Date() } : null } }).catch(() => undefined);
+      if (p?.percent != null) void onProgress?.(Math.round(p.percent * 0.25))?.catch(() => undefined);
+    };
+    setProgress(null, true);
+    let ref: SourceRef | null;
+    try {
+      ref = await source.locate({ id: sessionId, broadcastId: session.broadcastId }, (p) => setProgress(p));
+    } finally {
+      setProgress(null, true);
+    }
     if (!ref) {
       await this.markUnavailable(
         sessionId,
@@ -75,6 +90,7 @@ export class AcquisitionService {
       await onProgress?.(30);
 
       const key = rawKey(sessionId, ext);
+      setProgress({ phase: 'STORING', percent: null, downloadedBytes: null, totalBytes: info.sizeBytes, speedBytesPerSec: null, etaSeconds: null }, true);
       const { sizeBytes } = await storage.upload(key, ref.localPath, mimeFor(ext));
       if (sizeBytes !== info.sizeBytes) throw new Error(`Upload size mismatch (${sizeBytes} vs ${info.sizeBytes} bytes)`);
       await onProgress?.(90);

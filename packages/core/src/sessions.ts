@@ -310,6 +310,10 @@ export function toSessionDTO(s: any, storedIn?: 'local' | 'gcs'): LiveSessionDTO
       width: s.sourceMedia?.width ?? null,
       height: s.sourceMedia?.height ?? null,
       videoCodec: s.sourceMedia?.videoCodec ?? null,
+      progress:
+        s.sourceMedia?.status === 'DOWNLOADING' && s.sourceMedia?.progress
+          ? { ...s.sourceMedia.progress, updatedAt: new Date(s.sourceMedia.progress.updatedAt ?? Date.now()).toISOString() }
+          : null,
       storedIn: s.sourceMedia?.storageKey ? (storedIn ?? null) : null,
     },
     processingStatus: s.processingStatus,

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { ObjectStorage } from '@shorts/integrations';
+import { probeMedia } from './ffprobe';
 
 /**
  * Where a completed stream's recording comes from (spec §1: the channel URL
@@ -19,9 +20,20 @@ export interface SourceRef {
   release?: () => Promise<void>;
 }
 
+/** Live progress of a long source fetch (e.g. a multi-GB download). */
+export interface SourceProgress {
+  phase: 'DOWNLOADING' | 'MERGING' | 'STORING';
+  /** 0–100 over the whole fetch, or null when unknown. */
+  percent: number | null;
+  downloadedBytes: number | null;
+  totalBytes: number | null;
+  speedBytesPerSec: number | null;
+  etaSeconds: number | null;
+}
+
 export interface VideoSourceProvider {
   readonly name: string;
-  locate(session: { id: string; broadcastId: string }): Promise<SourceRef | null>;
+  locate(session: { id: string; broadcastId: string }, onProgress?: (p: SourceProgress) => void): Promise<SourceRef | null>;
 }
 
 export const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm', '.mov', '.m4v', '.ts', '.flv'];
@@ -91,9 +103,9 @@ export class CompositeSourceProvider implements VideoSourceProvider {
   constructor(private readonly providers: VideoSourceProvider[]) {
     this.name = providers.map((p) => p.name).join('+');
   }
-  async locate(session: { id: string; broadcastId: string }): Promise<SourceRef | null> {
+  async locate(session: { id: string; broadcastId: string }, onProgress?: (p: SourceProgress) => void): Promise<SourceRef | null> {
     for (const p of this.providers) {
-      const ref = await p.locate(session);
+      const ref = await p.locate(session, onProgress);
       if (ref) return ref;
     }
     return null;
@@ -112,14 +124,20 @@ export class YtDlpProvider implements VideoSourceProvider {
     private readonly opts: { binary?: string; maxHeight?: number; timeoutMs?: number } = {},
   ) {}
 
-  async locate(session: { id: string; broadcastId: string }): Promise<SourceRef | null> {
+  async locate(session: { id: string; broadcastId: string }, onProgress?: (p: SourceProgress) => void): Promise<SourceRef | null> {
     if (!/^[A-Za-z0-9_-]{11}$/.test(session.broadcastId)) return null;
     await fsp.mkdir(this.tempDir, { recursive: true });
     const out = path.join(this.tempDir, `ytdlp-${session.id}.mp4`);
+    // A finished download from an earlier attempt (e.g. the worker restarted) is reused, not fetched again.
+    if ((await fsp.stat(out).catch(() => null))?.size && (await probeMedia(out).then(() => true, () => false))) {
+      return { localPath: out, consume: true, origin: `youtube:${session.broadcastId}` };
+    }
     await fsp.rm(out, { force: true });
     const h = this.opts.maxHeight ?? 1080;
     const args = [
-      '--no-playlist', '--no-progress', '--quiet', '--no-warnings',
+      '--no-playlist', '--quiet', '--no-warnings', '--progress', '--newline',
+      '--progress-template',
+      'download:PROGRESS %(info.format_id)s %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s',
       '-f', `bv*[height<=${h}]+ba/b[height<=${h}]`,
       '--merge-output-format', 'mp4',
       '-o', out,
@@ -130,6 +148,17 @@ export class YtDlpProvider implements VideoSourceProvider {
       let err = '';
       const timer = setTimeout(() => proc.kill('SIGKILL'), this.opts.timeoutMs ?? 6 * 60 * 60_000);
       proc.stderr.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2000)));
+      const tracker = new YtDlpProgress();
+      let buf = '';
+      proc.stdout.on('data', (d: Buffer) => {
+        buf += d.toString();
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          const p = tracker.parse(line);
+          if (p) onProgress?.(p);
+        }
+      });
       proc.on('error', (e) => {
         clearTimeout(timer);
         reject((e as NodeJS.ErrnoException).code === 'ENOENT' ? new Error('yt-dlp is not installed on this worker (pipx install yt-dlp)') : e);
@@ -145,6 +174,42 @@ export class YtDlpProvider implements VideoSourceProvider {
       throw new Error(`yt-dlp could not download ${session.broadcastId}: ${stderr.split('\n').pop()}`);
     }
     return { localPath: out, consume: true, origin: `youtube:${session.broadcastId}` };
+  }
+}
+
+const num = (v: string | undefined) => {
+  const n = Number(v);
+  return v && v !== 'NA' && Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Turns yt-dlp progress lines into overall progress. yt-dlp fetches the video
+ * stream, then the audio stream (separate files), then merges them; video is
+ * by far the larger part, so it counts for 92 %.
+ */
+export class YtDlpProgress {
+  private formats: string[] = [];
+  private lastFile: { done: number; total: number | null } | null = null;
+
+  parse(line: string): SourceProgress | null {
+    const m = line.trim().match(/^PROGRESS (\S+) (\S+) (\S+) (\S+) (\S+) (\S+)$/);
+    if (!m) return null;
+    const [, format, done, total, estimate, speed, eta] = m as unknown as [string, string, string, string, string, string, string];
+    if (!this.formats.includes(format)) this.formats.push(format);
+    const part = this.formats.indexOf(format);
+    const downloaded = num(done);
+    const size = num(total) ?? num(estimate);
+    const filePct = downloaded !== null && size ? Math.min(1, downloaded / size) : null;
+    const [from, span] = part === 0 ? [0, 92] : [92, 7];
+    this.lastFile = { done: downloaded ?? 0, total: size };
+    return {
+      phase: 'DOWNLOADING',
+      percent: filePct === null ? null : Math.round((from + filePct * span) * 10) / 10,
+      downloadedBytes: downloaded,
+      totalBytes: size,
+      speedBytesPerSec: num(speed),
+      etaSeconds: num(eta),
+    };
   }
 }
 
