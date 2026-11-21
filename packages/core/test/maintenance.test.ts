@@ -4,7 +4,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { parseConfig } from '@shorts/config';
 import { GeneratedClipModel, HighlightCandidateModel, LiveSessionModel, ProcessingJobModel, StreamerChannelModel, TranscriptChunkModel, TranscriptModel, connectDatabase, disconnectDatabase, mongoose, syncIndexes } from '@shorts/database';
-import { LocalObjectStorage, MockYouTubeUploader, type Notifier } from '@shorts/integrations';
+import { LocalObjectStorage, type Notifier } from '@shorts/integrations';
+import { MockYouTubeUploader } from '@shorts/integrations/testing';
 import type { Redis } from '@shorts/queue';
 import {
   ClipService,
@@ -157,9 +158,8 @@ describe('YouTube stats', () => {
     const s = await sessionWithClips([
       { uploadStatus: 'PUBLISHED', publishedAt: new Date(), youtubeVideoId: 'vidA' },
       { uploadStatus: 'PUBLISHED', publishedAt: new Date(), youtubeVideoId: 'vidGone' },
-      { uploadStatus: 'PUBLISHED', publishedAt: new Date(), youtubeVideoId: 'mock123' },
     ]);
-    const account = { uploadsAreMock: false, isConnected: async () => true, accessToken: async () => 'tok' } as unknown as YouTubeAccountService;
+    const account = { isConnected: async () => true, accessToken: async () => 'tok' } as unknown as YouTubeAccountService;
     const asked: string[][] = [];
     const res = await refreshVideoStats({
       account,
@@ -168,7 +168,7 @@ describe('YouTube stats', () => {
         return [{ id: 'vidA', views: 1200, likes: 80, comments: 5, privacyStatus: 'public' }];
       },
     });
-    expect(asked).toEqual([['vidA', 'vidGone']]); // mock uploads are skipped
+    expect(asked).toEqual([['vidA', 'vidGone']]);
     expect(res).toEqual({ updated: 1, missing: 1 });
     expect((await GeneratedClipModel.findById(s.clipIds[0]).lean())!.stats).toMatchObject({ views: 1200, likes: 80, privacyStatus: 'public' });
     expect((await GeneratedClipModel.findById(s.clipIds[1]).lean())!.stats).toMatchObject({ privacyStatus: 'deleted' });

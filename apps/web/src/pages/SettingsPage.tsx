@@ -22,6 +22,7 @@ import {
   type AppSettingsInput,
 } from '@shorts/shared-types';
 import { describeError } from '../api/client';
+import { InstagramCard } from '../components/InstagramCard';
 import { useConnectYouTube, useDisconnectYouTube, useMe, useSettings, useUpdateSettings } from '../api/hooks';
 import { useSearchParams } from 'react-router-dom';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -37,6 +38,8 @@ interface FieldDef {
   options?: readonly string[];
   helper?: string;
   unit?: string;
+  /** Shown but not editable (comes from .env). */
+  readOnly?: boolean;
 }
 
 /** Declarative form definition — adding a setting is one line here + the shared schema. */
@@ -49,6 +52,7 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
       { key: 'intervalSeconds', label: 'Polling interval', kind: 'number', unit: 'sec', helper: 'Min 30s. Mind YouTube API quota.' },
       { key: 'endConfirmationChecks', label: 'End confirmation checks', kind: 'number', helper: 'Consecutive "not live" checks before a stream is marked ended.' },
       { key: 'sessionWatchIntervalSeconds', label: 'Live session re-check', kind: 'number', unit: 'sec', helper: 'How often an ongoing broadcast is re-checked for its end.' },
+      { key: 'chatPollSeconds', label: 'Live chat sampling', kind: 'number', unit: 'sec', helper: 'Reads chat activity while live to spot hype moments. ~5 quota units per read (60s ≈ 300/hour). 0 = off.' },
     ],
   },
   {
@@ -100,6 +104,7 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
       { key: 'windowStartHour', label: 'Publish window start', kind: 'number', unit: 'h', helper: 'Uploads only start from this hour…' },
       { key: 'windowEndHour', label: 'Publish window end', kind: 'number', unit: 'h', helper: '…until this hour. 0–24 = any time' },
       { key: 'timezone', label: 'Time zone', kind: 'text', helper: 'IANA name, e.g. Asia/Kolkata' },
+      { key: 'instagramMode', label: 'Instagram Reels', kind: 'select', options: ['MANUAL', 'WITH_YOUTUBE'], helper: 'WITH_YOUTUBE: approving a Short also posts it as a Reel. MANUAL: use "Post to Instagram" per clip.' },
     ],
   },
   {
@@ -111,11 +116,11 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
   {
     section: 'providers',
     title: 'Providers',
-    description: 'Pluggable integrations. Credentials stay in environment variables.',
+    description: 'What the app is using right now. These come from .env (change them there and restart npm run dev).',
     fields: [
-      { key: 'transcription', label: 'Transcription provider', kind: 'text' },
-      { key: 'llm', label: 'Highlight / metadata LLM', kind: 'text' },
-      { key: 'videoSource', label: 'Video source provider', kind: 'text' },
+      { key: 'transcription', label: 'Transcription provider', kind: 'text', readOnly: true, helper: 'TRANSCRIPTION_PROVIDER (openai = any OpenAI-compatible Whisper, e.g. Groq)' },
+      { key: 'llm', label: 'Highlight / metadata LLM', kind: 'text', readOnly: true, helper: 'LLM_PROVIDER: gemini or anthropic' },
+      { key: 'videoSource', label: 'Video source provider', kind: 'text', readOnly: true, helper: 'VIDEO_SOURCE_PROVIDER: local (uploads + inbox), add ,ytdlp to download finished streams' },
     ],
   },
   {
@@ -148,7 +153,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (settings.data && !draft) {
-      const { youtube: _y, updatedAt: _u, ...values } = settings.data;
+      const { youtube: _y, instagram: _i, updatedAt: _u, ...values } = settings.data;
       setDraft(structuredClone(values) as unknown as Draft);
     }
   }, [settings.data, draft]);
@@ -167,7 +172,7 @@ export function SettingsPage() {
     if (!draft) return;
     update.mutate(draft as unknown as AppSettingsInput, {
       onSuccess: (data) => {
-        const { youtube: _y, updatedAt: _u, ...values } = data;
+        const { youtube: _y, instagram: _i, updatedAt: _u, ...values } = data;
         setDraft(structuredClone(values) as unknown as Draft);
         setSaved(true);
       },
@@ -176,7 +181,7 @@ export function SettingsPage() {
 
   const reset = () => {
     if (!settings.data) return;
-    const { youtube: _y, updatedAt: _u, ...values } = settings.data;
+    const { youtube: _y, instagram: _i, updatedAt: _u, ...values } = settings.data;
     setDraft(structuredClone(values) as unknown as Draft);
     update.reset();
   };
@@ -225,8 +230,8 @@ export function SettingsPage() {
             yt && (
               <Chip
                 size="small"
-                color={yt.uploadMode === 'mock' ? 'warning' : yt.connected ? 'success' : yt.status === 'ERROR' ? 'error' : 'default'}
-                label={yt.uploadMode === 'mock' ? 'Simulated uploads' : yt.connected ? 'Connected' : yt.status === 'ERROR' ? 'Needs reconnect' : 'Not connected'}
+                color={yt.connected ? 'success' : yt.status === 'ERROR' ? 'error' : 'default'}
+                label={yt.connected ? 'Connected' : yt.status === 'ERROR' ? 'Needs reconnect' : 'Not connected'}
               />
             )
           }
@@ -234,11 +239,6 @@ export function SettingsPage() {
         />
         {yt && (
           <CardContent sx={{ pt: 0 }}>
-            {yt.uploadMode === 'mock' ? (
-              <Typography variant="body2" color="text.secondary">
-                No YouTube OAuth client is configured, so uploads are simulated (fake video ids). Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET to .env and restart to publish for real.
-              </Typography>
-            ) : (
               <Stack spacing={1.5}>
                 {yt.channelTitle && (
                   <Typography variant="body2">
@@ -261,10 +261,10 @@ export function SettingsPage() {
                 )}
                 {(connect.isError || disconnect.isError) && <Alert severity="error">{describeError(connect.error ?? disconnect.error)}</Alert>}
               </Stack>
-            )}
           </CardContent>
         )}
       </Card>
+      <InstagramCard ig={settings.data?.instagram} canEdit={canEdit} />
       <ConfirmDialog
         open={confirmDisconnect}
         title="Disconnect YouTube channel?"
@@ -298,7 +298,7 @@ export function SettingsPage() {
                             size="small"
                             label={field.label}
                             value={value}
-                            disabled={!canEdit}
+                            disabled={!canEdit || field.readOnly}
                             select={field.kind === 'select'}
                             type={field.kind === 'number' ? 'number' : field.kind === 'color' ? 'color' : 'text'}
                             helperText={field.helper}

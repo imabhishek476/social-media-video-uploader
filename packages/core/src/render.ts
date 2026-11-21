@@ -1,7 +1,18 @@
 import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
 
-export type RenderMode = 'CENTER_CROP' | 'BLUR_FIT';
+export type RenderMode = 'CENTER_CROP' | 'BLUR_FIT' | 'FACECAM_SPLIT';
+
+/** Normalised rectangle (0–1 of the source frame). */
+export interface FrameBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Facecam band height in the split layout (gameplay gets the rest). */
+export const FACECAM_BAND = 768;
 
 export interface RenderSpec {
   sourcePath: string;
@@ -14,6 +25,8 @@ export interface RenderSpec {
   /** Absolute time of the best moment, used for the thumbnail. */
   keyMomentSeconds: number | null;
   mode: RenderMode;
+  /** Required for FACECAM_SPLIT. */
+  facecam?: FrameBox | null;
 }
 
 export const SHORT_WIDTH = 1080;
@@ -24,10 +37,22 @@ const FPS = 30;
 export const filterPath = (p: string) => p.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,');
 
 /** Video filter graph producing `[v]` at 1080×1920. */
-export function videoFilter(mode: RenderMode, captionsPath: string | null): string {
+export function videoFilter(mode: RenderMode, captionsPath: string | null, facecam?: FrameBox | null): string {
   const W = SHORT_WIDTH;
   const H = SHORT_HEIGHT;
   const captions = captionsPath ? `,ass=filename=${filterPath(captionsPath)}` : '';
+  if (mode === 'FACECAM_SPLIT' && facecam) {
+    // Facecam (cropped to fill the top band) stacked over a centre crop of the gameplay.
+    const f = (n: number) => n.toFixed(4);
+    const top = FACECAM_BAND;
+    const bottom = H - top;
+    return [
+      '[0:v]split=2[camsrc][gamesrc]',
+      `[camsrc]crop=w=iw*${f(facecam.w)}:h=ih*${f(facecam.h)}:x=iw*${f(facecam.x)}:y=ih*${f(facecam.y)},scale=${W}:${top}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${top}[cam]`,
+      `[gamesrc]crop=w='min(iw,ih*${W}/${bottom})':h='min(ih,iw*${bottom}/${W})',scale=${W}:${bottom}:flags=lanczos[game]`,
+      `[cam][game]vstack=inputs=2,setsar=1,fps=${FPS}${captions},format=yuv420p[v]`,
+    ].join(';');
+  }
   if (mode === 'BLUR_FIT') {
     return [
       '[0:v]split=2[bgsrc][fgsrc]',
@@ -103,7 +128,7 @@ export async function renderShort(spec: RenderSpec, onProgress?: (fraction: numb
       '-ss', spec.startSeconds.toFixed(3),
       '-i', spec.sourcePath,
       '-t', duration.toFixed(3),
-      '-filter_complex', videoFilter(spec.mode, spec.captionsPath),
+      '-filter_complex', videoFilter(spec.mode, spec.captionsPath, spec.facecam),
       '-map', '[v]',
       '-map', '0:a:0?',
       '-af', audioFilter,
@@ -120,4 +145,16 @@ export async function renderShort(spec: RenderSpec, onProgress?: (fraction: numb
   await runFfmpeg(['-y', '-ss', thumbAt.toFixed(2), '-i', spec.outPath, '-frames:v', '1', '-q:v', '3', spec.thumbnailPath], 1);
   const { size } = await fsp.stat(spec.outPath);
   return { durationSeconds: Math.round(duration * 10) / 10, sizeBytes: size };
+}
+
+/** Grab JPEG frames at the given times (seconds) for facecam detection. */
+export async function extractFrames(sourcePath: string, times: number[], outDir: string): Promise<string[]> {
+  await fsp.mkdir(outDir, { recursive: true });
+  const out: string[] = [];
+  for (const [i, t] of times.entries()) {
+    const file = `${outDir}/frame-${i}.jpg`;
+    await runFfmpeg(['-y', '-ss', t.toFixed(2), '-i', sourcePath, '-frames:v', '1', '-vf', 'scale=1280:-2', '-q:v', '3', file], 1);
+    out.push(file);
+  }
+  return out;
 }

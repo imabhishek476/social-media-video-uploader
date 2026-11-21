@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
-import { audioScore, excitementHits, loudnessStats, peakLoudness } from './signals';
+import { audioScore, chatStats, excitementHits, loudnessStats, peakChat, peakLoudness } from './signals';
 import { AiProviderError, formatTimestamp, type HighlightAnalyzer, type HighlightRequest, type HighlightResponse, type RawHighlight } from './types';
 
 export const HighlightOutput = z.object({
@@ -26,7 +26,7 @@ export const HighlightOutput = z.object({
 
 export const SYSTEM_PROMPT = `You are a senior short-form video editor who finds the moments in livestream recordings that will perform best as standalone YouTube Shorts (vertical, under a minute).
 
-You get a timestamped transcript of part of a stream. Each line is "[<absolute seconds>s | <clock>] text", and lines where the audio is much louder than the stream's usual level are tagged (LOUD +N dB). Loudness spikes often mark reactions (screaming, laughing, hype), so weigh them, but a quiet funny line can still be a great clip.
+You get a timestamped transcript of part of a stream. Each line is "[<absolute seconds>s | <clock>] text", and lines where the audio is much louder than the stream's usual level are tagged (LOUD +N dB). Loudness spikes often mark reactions (screaming, laughing, hype), so weigh them, but a quiet funny line can still be a great clip. Lines tagged (CHAT SPIKE xN) were followed by live chat running N times faster than usual: viewers reacted, which is a strong sign of a great moment.
 
 Pick moments that:
 - work without context from the rest of the stream,
@@ -52,10 +52,15 @@ const PRICES: Record<string, [number, number]> = {
 
 export function buildTranscriptBlock(req: HighlightRequest): string {
   const stats = loudnessStats(req.loudness);
+  const chat = req.chat ?? [];
+  const cs = chatStats(chat);
   return req.segments
     .map((s) => {
       const lift = Math.round(peakLoudness(req.loudness, s.startSeconds, s.endSeconds) - stats.median);
-      const tag = lift >= 8 ? ` (LOUD +${lift} dB)` : '';
+      let tag = lift >= 8 ? ` (LOUD +${lift} dB)` : '';
+      const peak = peakChat(chat, s.startSeconds, s.endSeconds);
+      const ratio = peak / Math.max(1, cs.median);
+      if (chat.length && ratio >= 3 && peak >= cs.p95 && peak >= 5) tag += ` (CHAT SPIKE x${Math.round(ratio)})`;
       return `[${Math.round(s.startSeconds)}s | ${formatTimestamp(s.startSeconds)}]${tag} ${s.text}`;
     })
     .join('\n');
@@ -156,46 +161,4 @@ export function mapAnthropicError(err: unknown): AiProviderError {
     return new AiProviderError('UNAVAILABLE', `Anthropic API error ${err.status ?? ''}: ${err.message}`, (err.status ?? 500) >= 500);
   }
   return new AiProviderError('BAD_RESPONSE', (err as Error).message, true);
-}
-
-/**
- * Offline analyzer for development and tests: slides a window over the stream
- * and scores it from loudness spikes and excited phrases. No API calls.
- */
-export class HeuristicHighlightAnalyzer implements HighlightAnalyzer {
-  readonly name = 'heuristic';
-
-  async analyze(req: HighlightRequest): Promise<HighlightResponse> {
-    const stats = loudnessStats(req.loudness);
-    const len = req.clip.targetSeconds;
-    const scored: RawHighlight[] = [];
-    for (let start = req.windowStartSeconds; start + req.clip.minSeconds <= req.windowEndSeconds; start += 5) {
-      const end = Math.min(req.windowEndSeconds, start + len);
-      const audio = audioScore(req.loudness, start, end, stats);
-      const hits = excitementHits(req.segments, start, end);
-      const words = Math.min(100, hits * 20);
-      const score = Math.round(0.65 * audio + 0.35 * words);
-      // Key moment = loudest second; useful for later reframing and thumbnails.
-      let key = start;
-      for (let s = Math.floor(start); s < end; s++) if ((req.loudness[s] ?? -99) > (req.loudness[key] ?? -99)) key = s;
-      const first = req.segments.find((s) => s.endSeconds > start && s.startSeconds < end);
-      scored.push({
-        startSeconds: start,
-        endSeconds: end,
-        keyMomentSeconds: key,
-        score,
-        breakdown: { hook: words, emotion: audio, entertainment: Math.round((audio + words) / 2), context: 50, payoff: audio, clarity: 50 },
-        hook: (first?.text ?? '').slice(0, 60),
-        reason: `Audio ${Math.round(peakLoudness(req.loudness, start, end) - stats.median)} dB above the stream's typical level; ${hits} excited phrase${hits === 1 ? '' : 's'}.`,
-        topic: null,
-      });
-    }
-    scored.sort((a, b) => b.score - a.score);
-    const picked: RawHighlight[] = [];
-    for (const c of scored) {
-      if (picked.length >= req.maxCandidates) break;
-      if (picked.every((p) => c.endSeconds <= p.startSeconds || c.startSeconds >= p.endSeconds)) picked.push(c);
-    }
-    return { highlights: picked, costUsd: 0 };
-  }
 }

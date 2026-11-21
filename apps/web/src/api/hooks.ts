@@ -227,17 +227,10 @@ export function useSession(id: string | null) {
 export function useReprocessSession() {
   const invalidate = useInvalidateLive();
   return useMutation({
-    mutationFn: (id: string) => api<LiveSessionDTO>(`/live-sessions/${id}/reprocess`, { method: 'POST' }),
-    onSuccess: invalidate,
-  });
-}
-
-/** Dev-only: drive the mock YouTube provider. */
-export function useMockLiveControl() {
-  const invalidate = useInvalidateLive();
-  return useMutation({
-    mutationFn: ({ channelId, action, mode }: { channelId: string; action: 'go-live' | 'end-live'; mode?: 'clean' | 'ambiguous' | 'vanish' }) =>
-      api<{ videoId: string }>(`/dev/mock-youtube/channels/${channelId}/${action}`, { method: 'POST', body: action === 'end-live' ? { mode } : {} }),
+    mutationFn: (arg: string | { id: string; retranscribe?: boolean }) => {
+      const { id, retranscribe } = typeof arg === 'string' ? { id: arg, retranscribe: false } : arg;
+      return api<LiveSessionDTO>(`/live-sessions/${id}/reprocess`, { method: 'POST', body: { retranscribe: Boolean(retranscribe) } });
+    },
     onSuccess: invalidate,
   });
 }
@@ -365,3 +358,39 @@ export const useUpdateClipMetadata = () =>
 export const useRegenerateMetadata = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/metadata`, { method: 'POST', body: {} }));
 export const useApproveClip = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/approve`, { method: 'POST', body: {} }));
 export const useRejectClip = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/reject`, { method: 'POST', body: {} }));
+
+export function useImportSession() {
+  const invalidate = useInvalidateLive();
+  return useMutation({
+    mutationFn: (url: string) => api<{ session: LiveSessionDTO; created: boolean }>('/live-sessions/import', { method: 'POST', body: { url } }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Manual facecam box for the split layout; `null` = detect again on the next render. */
+export function useSetFacecam() {
+  const invalidate = useInvalidateLive();
+  return useMutation({
+    mutationFn: ({ id, box }: { id: string; box: { x: number; y: number; w: number; h: number } | null }) =>
+      api<LiveSessionDTO>(`/live-sessions/${id}/facecam`, { method: 'PUT', body: { box } }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useConnectInstagram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (accessToken: string) => api<unknown>('/integrations/instagram', { method: 'PUT', body: { accessToken } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings }),
+  });
+}
+
+export function useDisconnectInstagram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>('/integrations/instagram', { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings }),
+  });
+}
+
+export const usePostToInstagram = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/instagram`, { method: 'POST', body: {} }));

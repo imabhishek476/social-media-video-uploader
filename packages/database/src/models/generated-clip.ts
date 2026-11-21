@@ -51,6 +51,22 @@ const generatedClipSchema = new Schema(
       type: new Schema({ views: Number, likes: Number, comments: Number, privacyStatus: String, fetchedAt: Date }, { _id: false }),
       default: null,
     },
+    /** Instagram Reel cross-post (independent of the YouTube upload). */
+    instagram: {
+      type: new Schema(
+        {
+          status: { type: String, enum: ['NOT_POSTED', 'QUEUED', 'POSTING', 'PUBLISHED', 'FAILED'], default: 'NOT_POSTED' },
+          attempts: { type: Number, default: 0 },
+          containerId: { type: String, default: null },
+          mediaId: { type: String, default: null },
+          permalink: { type: String, default: null },
+          publishedAt: { type: Date, default: null },
+          lastError: { type: String, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
     /** Rendered files deleted by retention (the record and YouTube link remain). */
     filesExpiredAt: { type: Date, default: null },
     lastError: { type: String, default: null },

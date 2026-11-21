@@ -11,6 +11,7 @@ export * from './models/generated-clip';
 export * from './models/processing-job';
 export * from './models/app-settings';
 export * from './models/audit-log';
+export * from './models/chat-activity';
 
 interface MinimalLogger {
   info(obj: object, msg?: string): void;

@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { GoogleYouTubeUploader, TemplateMetadataGenerator, YouTubeOAuthClient, YouTubePublishError, finalizeMetadata, msUntilQuotaReset, type MetadataRequest } from '../src';
+import { GoogleYouTubeUploader, YouTubeOAuthClient, YouTubePublishError, finalizeMetadata, msUntilQuotaReset, type MetadataRequest } from '../src';
+import { TemplateMetadataGenerator } from '../testing';
 
 type Handler = (req: http.IncomingMessage, body: Buffer) => { status: number; headers?: Record<string, string | undefined>; body?: unknown };
 let server: http.Server;

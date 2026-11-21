@@ -4,9 +4,13 @@ import { ConfigError, decryptSecret, encryptSecret, parseConfig } from '@shorts/
 import { idempotencyKey } from '@shorts/queue';
 import { settingsUpdateSchema } from '@shorts/shared-types';
 
+
+/** Provider keys the app needs outside the test environment. */
+const PROVIDER_KEYS = { YOUTUBE_API_KEY: 'k', YOUTUBE_CLIENT_ID: 'id', YOUTUBE_CLIENT_SECRET: 's', ENCRYPTION_KEY: 'b'.repeat(64), TRANSCRIPTION_API_KEY: 't', GEMINI_API_KEY: 'g' };
+
 describe('config', () => {
   it('applies defaults and falls back to a dev JWT secret outside production', () => {
-    const c = parseConfig({ NODE_ENV: 'development' });
+    const c = parseConfig({ NODE_ENV: 'development', ...PROVIDER_KEYS });
     expect(c.port).toBe(8080);
     expect(c.defaults.channelMonitorIntervalSeconds).toBe(300);
     expect(c.auth.usingDevSecret).toBe(true);
@@ -14,7 +18,7 @@ describe('config', () => {
   });
 
   it('treats blank optional values as unset', () => {
-    const c = parseConfig({ YOUTUBE_API_KEY: '  ', ADMIN_EMAIL: 'a@b.c', ADMIN_PASSWORD: '' });
+    const c = parseConfig({ NODE_ENV: 'test', YOUTUBE_API_KEY: '  ', ADMIN_EMAIL: 'a@b.c', ADMIN_PASSWORD: '' });
     expect(c.integrations.youtube.apiKey).toBeUndefined();
     expect(c.bootstrapAdmin).toBeUndefined();
   });
@@ -22,7 +26,7 @@ describe('config', () => {
   it('requires JWT_SECRET and ENCRYPTION_KEY in production', () => {
     expect(() => parseConfig({ NODE_ENV: 'production' })).toThrow(ConfigError);
     expect(() =>
-      parseConfig({ NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(40), ENCRYPTION_KEY: crypto.randomBytes(32).toString('hex') }),
+      parseConfig({ NODE_ENV: 'production', ...PROVIDER_KEYS, JWT_SECRET: 'x'.repeat(40), ENCRYPTION_KEY: crypto.randomBytes(32).toString('hex') }),
     ).not.toThrow();
   });
 
@@ -68,22 +72,34 @@ describe('settings update schema', () => {
   });
 });
 
-describe('config blank values', () => {
-  it('treats blank env vars as unset and auto-selects the YouTube provider', () => {
-    expect(parseConfig({ YOUTUBE_METADATA_PROVIDER: '', YOUTUBE_LIVE_DETECTION: '', PORT: '' }).integrations.youtube).toMatchObject({
-      metadataProvider: 'mock',
-      liveDetection: 'rss',
-    });
-    expect(parseConfig({ YOUTUBE_METADATA_PROVIDER: '', YOUTUBE_API_KEY: 'k' }).integrations.youtube.metadataProvider).toBe('youtube');
-    expect(() => parseConfig({ YOUTUBE_METADATA_PROVIDER: 'youtube' })).toThrow(/YOUTUBE_API_KEY/);
+describe('config', () => {
+  it('treats blank env vars as unset', () => {
+    expect(parseConfig({ NODE_ENV: 'test', YOUTUBE_LIVE_DETECTION: '', PORT: '' }).integrations.youtube.liveDetection).toBe('rss');
+  });
+
+  it('requires real provider keys outside tests', () => {
+    const full = {
+      NODE_ENV: 'development',
+      YOUTUBE_API_KEY: 'k',
+      YOUTUBE_CLIENT_ID: 'id',
+      YOUTUBE_CLIENT_SECRET: 's',
+      ENCRYPTION_KEY: 'a'.repeat(64),
+      TRANSCRIPTION_API_KEY: 't',
+      GEMINI_API_KEY: 'g',
+    };
+    expect(parseConfig(full).integrations.llm).toMatchObject({ provider: 'gemini' });
+    expect(() => parseConfig({ ...full, YOUTUBE_API_KEY: '' })).toThrow(/YOUTUBE_API_KEY is required/);
+    expect(() => parseConfig({ ...full, TRANSCRIPTION_API_KEY: '' })).toThrow(/TRANSCRIPTION_API_KEY is required/);
+    expect(() => parseConfig({ ...full, GEMINI_API_KEY: '' })).toThrow(/GEMINI_API_KEY is required/);
+    expect(() => parseConfig({ ...full, TRANSCRIPTION_PROVIDER: 'mock' })).toThrow();
   });
 });
 
 describe('config ports and paths', () => {
   it('prefers API_PORT over a generic PORT and anchors STORAGE_DIR to the base dir', () => {
-    const c = parseConfig({ PORT: '5173', API_PORT: '8080', STORAGE_DIR: './storage' }, '/srv/app');
+    const c = parseConfig({ NODE_ENV: 'test', PORT: '5173', API_PORT: '8080', STORAGE_DIR: './storage' }, '/srv/app');
     expect(c.port).toBe(8080);
     expect(c.worker.storageDir).toBe('/srv/app/storage');
-    expect(parseConfig({ PORT: '9000' }).port).toBe(9000);
+    expect(parseConfig({ NODE_ENV: 'test', PORT: '9000' }).port).toBe(9000);
   });
 });

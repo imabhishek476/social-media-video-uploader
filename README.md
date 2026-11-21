@@ -30,7 +30,7 @@ apps/web  (React + MUI)  ──/api──▶  apps/api (Express 5)  ──▶ Mo
 - **packages/**
   - `config`: zod-validated environment and AES-256-GCM secret encryption.
   - `core`: domain services shared by the API and the worker: channel registration, live monitoring, session lifecycle and settings.
-  - `integrations`: the YouTube metadata providers (real Data API and a mock for development), channel-URL parsing and quota tracking.
+  - `integrations`: the YouTube Data API provider, channel-URL parsing and quota tracking. Test doubles live in `packages/integrations/testing` (`@shorts/integrations/testing`) and are never loaded by the app.
   - `shared-types`: enums, state machines, DTOs and request schemas, shared by the API and the web app.
   - `database`: Mongoose models and indexes for every spec entity.
   - `queue`: BullMQ queue registry, idempotency keys and heartbeats.
@@ -102,7 +102,6 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # ENC
 | GET | `/api/v1/integrations/youtube/connect` | ADMIN (returns the Google consent URL) |
 | GET | `/api/v1/integrations/youtube/callback` | public, protected by single-use `state` |
 | DELETE | `/api/v1/integrations/youtube` | ADMIN (revoke and disconnect) |
-| GET / POST | `/api/v1/dev/mock-youtube/…` | ADMIN, only while the mock provider is active |
 
 Errors always use the shape `{ "error": { "code", "message", "details?", "requestId" } }`.
 
@@ -128,7 +127,7 @@ docs/               Roadmap and feature proposals
 
 ## Live detection (Phase 2)
 
-- **Providers.** With `YOUTUBE_API_KEY` set, the real YouTube Data API is used. Without it, a **mock provider** is used: any @handle resolves to a fake channel, and the ⋮ menu on the Streamers page can simulate a stream going live, ending cleanly, or dropping out.
+- **Provider.** Live detection uses the YouTube Data API (`YOUTUBE_API_KEY`, required).
 - **Cheap detection.** Each channel's free uploads RSS feed lists its recent videos. One `videos.list` call (1 quota unit per 50 videos) then checks which of them are live, across all channels due in that tick. `YOUTUBE_LIVE_DETECTION=search` switches to `search.list` instead, at 100 units per check. Quota use is tracked per Pacific-time day and shown on the dashboard.
 - **Reliable end detection.** A stream counts as ended when YouTube reports its end time, or after `endConfirmationChecks` consecutive "not live" checks. A failed API call never counts toward ending a stream.
 - **Exactly once.** Each broadcast gets one session (unique index), and each ended session queues one media-acquisition job (unique key in `ProcessingJob`). Overlapping monitor runs claim channels with a lease, so no channel is checked twice at once.
@@ -136,7 +135,10 @@ docs/               Roadmap and feature proposals
 
 ## Source media and storage (Phase 3)
 
-- **Getting a recording.** The channel URL is not a media file, so the source is a replaceable `VideoSourceProvider`. Two ways to supply a recording today: press **Upload recording** on the session panel, or drop `<broadcastId>.mp4` (or `.mkv`, `.webm`, `.mov`) into `storage/incoming/`. Then press **Reprocess**. Uploads trigger it automatically.
+- **Getting a recording.** The YouTube API never provides another channel's video file, so recordings come from a permitted source:
+  - **Storage inbox (automatic):** upload the recording to `incoming/<videoId>.mp4` (or `.mkv`, `.webm`, `.mov`) in the bucket. Streamers can do this, OBS plus rclone or gsutil can, or you can in the Cloud Console. Every 2 minutes the worker matches new files to their session and starts processing. A file named after a video ID that has no session yet is imported as a missed live, if the channel is a registered streamer. The inbox object is deleted once the recording is stored.
+  - **Upload button** on the session panel.
+- **Missed lives.** Live Sessions → **Add missed live** takes any YouTube link (`watch?v=`, `youtu.be/`, `/live/`, `/shorts/`) from a registered streamer. An ended stream is queued right away, and one that is still live is tracked until it ends. API: `POST /api/v1/live-sessions/import { "url": "…" }`.
 - **Validation.** FFprobe checks every file for a video and an audio stream, a duration over 10 seconds, and the duration and size limits from Settings → Processing. Rejected files are deleted and the reason is shown on the session.
 - **Storage.** `STORAGE_PROVIDER=gcs` stores recordings in your Google Cloud Storage bucket (`GCS_BUCKET`, `GCS_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` pointing at the key file). `local` keeps them in `storage/objects/`. Keys are `raw/<sessionId>/source.<ext>`. Uploads are resumable and checksum-verified.
 - **Retention.** Raw recordings are deleted after `retention.sourceDays` (Settings, default 7, 0 keeps them). An hourly job does it and marks the session as expired. Add a GCS lifecycle rule for `raw/` as a backstop.
@@ -146,10 +148,10 @@ docs/               Roadmap and feature proposals
 
 - **Flow.** Once a recording is stored, the `transcription` job downloads it, extracts speech audio (mono 16 kHz MP3, split into pieces under the provider's 25 MB limit), measures loudness for every second, and transcribes each piece. Then the `highlight` job analyses the stream in 30-minute windows, validates the proposed timestamps, merges duplicates, and saves the candidates. The session ends in **Highlights ready**.
 - **Providers** (`.env`):
-  - `TRANSCRIPTION_PROVIDER=openai` uses any Whisper-compatible API: OpenAI `whisper-1` (about $0.006/min), or Groq by changing `TRANSCRIPTION_BASE_URL` and `TRANSCRIPTION_MODEL`. `mock` writes placeholder text offline.
+  - `TRANSCRIPTION_PROVIDER=openai` uses any Whisper-compatible API: OpenAI `whisper-1` (about $0.006/min), or Groq by changing `TRANSCRIPTION_BASE_URL` and `TRANSCRIPTION_MODEL`.
   - `LLM_PROVIDER=gemini` uses Google Gemini (`GEMINI_API_KEY`, `GEMINI_MODEL`, default `gemini-3.8-flash`) with a response schema. It works on Gemini's free tier.
   - Free transcription: Groq's Whisper (`TRANSCRIPTION_BASE_URL=https://api.groq.com/openai/v1`, `TRANSCRIPTION_MODEL=whisper-large-v3-turbo`). The free tier covers about 8 hours of audio per day.
-  - `LLM_PROVIDER=anthropic` uses Claude (`LLM_MODEL`, default `claude-opus-5-5`) with structured outputs. `LLM_API_KEY` is optional; the SDK also reads `ANTHROPIC_API_KEY`. `mock` scores moments from loudness and excited phrases only.
+  - `LLM_PROVIDER=anthropic` uses Claude (`LLM_MODEL`, default `claude-opus-5-5`) with structured outputs. `LLM_API_KEY` is optional; the SDK also reads `ANTHROPIC_API_KEY`.
   - Server-side refusal fallback is on: if the model declines a transcript, the API retries it on a fallback model.
 - **Scoring.** Claude scores hook, emotion, entertainment, context, payoff and clarity. The final score adds 15% from the loudness signal. The top `maxClipsPerStream` candidates at or above `minHighlightScore` are auto-selected. Lower-scoring ones are kept as candidates or discarded with a reason.
 - **Validation.** Clips are clamped to the recording, forced into the min/max length around the key moment, snapped to sentence boundaries, and overlapping clips are merged or de-duplicated.
@@ -160,8 +162,11 @@ docs/               Roadmap and feature proposals
 
 - **When.** After analysis, the `render` job turns every **Selected** highlight into a Short. In Clip Studio, **Render selected** renders new or trimmed picks, and **Re-render all** applies changed caption or reframing settings.
 - **Output.** 1080×1920 H.264 at 30 fps, AAC 48 kHz, fast-start MP4, plus a JPEG thumbnail at the key moment. Files are stored at `clips/<sessionId>/<clipId>/v<version>.{mp4,jpg,ass}`.
-- **Reframing** (Settings → Clips): `CENTER_CROP` crops the middle of the frame. `BLUR_FIT` keeps the whole 16:9 frame over a blurred background, which is better for gameplay with a HUD. `FACE_TRACK`, `ACTIVE_SPEAKER` and `CUSTOM_LAYOUT` fall back to centre crop for now.
-- **Captions.** Burned-in, 2–3 words at a time, uppercase, with the spoken word in the highlight colour. Font, size, colours and position come from Settings → Subtitles. Word timing is estimated from Whisper segment times.
+- **Reframing** (Settings → Clips):
+  - `CENTER_CROP` crops the middle of the frame.
+  - `BLUR_FIT` keeps the whole 16:9 frame over a blurred background.
+  - `FACECAM_SPLIT` is the streamer layout: the webcam fills the top 768 px and gameplay fills the rest. The facecam is found once per stream: 3 frames go to the LLM's vision (Gemini, or Claude), and the box is stored on the session. If there's no webcam, for example IRL or just chatting, that stream uses `BLUR_FIT`. In Clip Studio you can **Draw facecam box** on the source video or **Detect again**, then **Re-render all**.
+- **Captions.** Burned-in, 2–3 words at a time, uppercase, with the spoken word in the highlight colour. Font, size, colours and position come from Settings → Subtitles. Word timing is exact: Whisper returns timestamps for every word. Transcripts made before this change use estimated timing; press **Re-transcribe** on the session to upgrade one.
 - **Audio.** Two-pass EBU R128 normalisation to −14 LUFS, the level YouTube and mobile playback expect.
 - **Versions.** Trimming a highlight creates a new render version. Older versions that were never uploaded are deleted with their files. Each clip is claimed through a unique index, so parallel workers never render the same clip twice, and a render claim left by a crashed worker is taken over after 30 minutes.
 - **Fonts.** The worker Docker image installs Montserrat and Noto. Locally, libass falls back to a system font if the configured one is missing.
@@ -173,7 +178,31 @@ docs/               Roadmap and feature proposals
 - **Upload.** The `upload` job runs one upload at a time. It uses the YouTube resumable protocol in 8 MiB chunks with the default privacy from Settings → Publishing. The session URL is saved, so a crash resumes the same upload; an upload that had already finished is recovered rather than repeated. Each clip has a stable idempotency key and the video ID is unique in the database.
 - **Pacing.** `dailyUploadLimit` (0 means no limit) and `minMinutesBetweenUploads` delay jobs instead of failing them. When the YouTube quota runs out, uploads wait until the quota resets at midnight Pacific time.
 - **Connection.** Settings has **Connect YouTube channel**, which runs an OAuth web-server flow with `youtube.upload` and `youtube.readonly` scopes. The refresh token is stored encrypted with `ENCRYPTION_KEY`, and the callback is protected by a single-use `state`. A revoked token marks the connection as **Needs reconnect**.
-- **Without an OAuth client**, uploads are simulated with fake `mock…` IDs (`YOUTUBE_UPLOAD_PROVIDER=mock`), so the whole flow can be tested.
+
+## Live chat signal
+
+While a stream is live, the worker reads its YouTube live chat every `chatPollSeconds` (Settings → Monitoring, default 60, 0 = off). Only the number of messages per 10 seconds is stored, not their text or authors. Analysis uses the stored counts in two ways:
+
+- **In the prompt.** Transcript lines followed by a chat burst are tagged `(CHAT SPIKE xN)` for the AI.
+- **In the score.** A chat score (0–100) is blended into each highlight's score at a 20 % weight and shown as `chat` in the score breakdown. The window runs from the clip's start to 20 s past its end, because chat reacts late.
+
+Each chat read costs about 5 quota units, so 60 s is about 300 units per live hour. Sampling stops at 80 % of the daily quota, which leaves room for live detection and uploads. Streams with chat turned off, recordings added later, and streams with fewer than 50 captured messages are scored without chat.
+
+## Instagram Reels
+
+Rendered Shorts can also be posted as Reels to an Instagram **Business or Creator** account. Posting uses the Instagram API with Instagram Login and a resumable upload, so no public video URL is needed.
+
+1. In [Meta for Developers](https://developers.facebook.com/), create an app (type **Business**) and add the **Instagram** product, under "API setup with Instagram login".
+2. Add your Instagram account as a tester and accept the invite in the Instagram app.
+3. Generate an access token for the account with `instagram_business_basic` and `instagram_business_content_publish`. The dashboard's token generator gives a 60-day long-lived token.
+4. In the app, open Settings → **Instagram Reels**, paste the token and press **Connect Instagram**. The token is checked, then stored encrypted with `ENCRYPTION_KEY`. A daily job renews it before it expires.
+
+Once connected:
+- Clip Studio has **Post to Instagram** for each rendered Short.
+- Settings → Publishing → Instagram Reels = `WITH_YOUTUBE` also queues the Reel whenever a Short is approved.
+- Reels respect the publish window.
+- Hitting Instagram's 24-hour publishing limit delays the Reel instead of failing it.
+- The caption is the title and description, plus the tags as hashtags (at most 30 hashtags and 2,200 characters).
 
 ## Automation and hardening (Phase 7)
 
@@ -190,4 +219,4 @@ docs/               Roadmap and feature proposals
 
 ## Environment
 
-See [.env.example](.env.example). Phases 1–2 need MongoDB, Redis, `JWT_SECRET`, `ENCRYPTION_KEY` and the bootstrap admin. `YOUTUBE_API_KEY` is optional; without it the mock provider is used. `API_PORT` takes precedence over a generic `PORT`, because dev tooling and PaaS hosts often inject `PORT` into every child process.
+See [.env.example](.env.example). Phases 1–2 need MongoDB, Redis, `JWT_SECRET`, `ENCRYPTION_KEY` and the bootstrap admin. Outside tests the app refuses to start without real provider keys: `YOUTUBE_API_KEY`, `YOUTUBE_CLIENT_ID`/`SECRET`, `ENCRYPTION_KEY`, `TRANSCRIPTION_API_KEY`, and `GEMINI_API_KEY` (or the Claude key with `LLM_PROVIDER=anthropic`). `API_PORT` takes precedence over a generic `PORT`, because dev tooling and PaaS hosts often inject `PORT` into every child process.

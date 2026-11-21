@@ -4,11 +4,19 @@
  * swapped by configuration.
  */
 
+export interface TranscriptWord {
+  word: string;
+  startSeconds: number;
+  endSeconds: number;
+}
+
 export interface TranscriptSegment {
   startSeconds: number;
   endSeconds: number;
   text: string;
   confidence?: number | null;
+  /** Exact per-word timing when the provider returns it (used for captions). */
+  words?: TranscriptWord[];
 }
 
 export interface TranscriptionOutput {
@@ -34,6 +42,7 @@ export interface ScoreBreakdown {
   payoff: number;
   clarity: number;
   audio?: number;
+  chat?: number;
 }
 
 /** A highlight exactly as the analyzer proposed it (validated later by the pipeline). */
@@ -58,6 +67,8 @@ export interface HighlightRequest {
   segments: TranscriptSegment[];
   /** Whole-stream loudness, one dBFS value per second (index = second). */
   loudness: number[];
+  /** Live-chat messages per 10 s bucket (index × 10 = second); empty when chat wasn't sampled. */
+  chat?: number[];
   clip: { minSeconds: number; maxSeconds: number; targetSeconds: number };
   maxCandidates: number;
 }

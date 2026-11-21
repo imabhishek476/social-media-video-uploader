@@ -137,7 +137,7 @@ export interface UploadInput {
 }
 
 export interface YouTubeUploader {
-  readonly name: 'youtube' | 'mock';
+  readonly name: string;
   upload(input: UploadInput, accessToken: () => Promise<string>): Promise<{ videoId: string }>;
   setThumbnail(videoId: string, jpegPath: string, accessToken: () => Promise<string>): Promise<void>;
 }
@@ -251,23 +251,6 @@ export class GoogleYouTubeUploader implements YouTubeUploader {
     });
     if (!res.ok) throw await googleError(res, 'YouTube thumbnails.set');
   }
-}
-
-/** Development stand-in: "uploads" instantly and returns a fake video id. */
-export class MockYouTubeUploader implements YouTubeUploader {
-  readonly name = 'mock' as const;
-  readonly uploads: Array<{ videoId: string; metadata: VideoMetadata; bytes: number }> = [];
-
-  async upload(input: UploadInput): Promise<{ videoId: string }> {
-    const bytes = (await fsp.stat(input.filePath)).size;
-    await input.onSession(`mock://upload/${crypto.randomUUID()}`);
-    await input.onProgress?.(1);
-    const videoId = `mock${crypto.randomBytes(4).toString('hex')}`;
-    this.uploads.push({ videoId, metadata: input.metadata, bytes });
-    return { videoId };
-  }
-
-  async setThumbnail(): Promise<void> {}
 }
 
 export interface VideoStats {

@@ -20,6 +20,7 @@ import ContentCut from '@mui/icons-material/ContentCut';
 import { useRef, useState } from 'react';
 import LinearProgress from '@mui/material/LinearProgress';
 import UploadFile from '@mui/icons-material/UploadFile';
+import Tooltip from '@mui/material/Tooltip';
 import { StatusChip } from './StatusChip';
 
 const END_REASONS: Record<string, string> = {
@@ -27,6 +28,7 @@ const END_REASONS: Record<string, string> = {
   NOT_LIVE_CONFIRMED: 'Confirmed not live over several consecutive checks',
   UNAVAILABLE_CONFIRMED: 'Broadcast became unavailable (private/deleted) and stayed so',
   MISSED_LIVE: 'Started and ended between two checks',
+  IMPORTED: 'Added by hand from a YouTube URL',
 };
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -188,6 +190,15 @@ export function SessionDrawer({ sessionId, canEdit, onClose }: { sessionId: stri
                 >
                   Reprocess
                 </Button>
+                {s.sourceMedia.status === 'READY' && (
+                  <Tooltip title="Transcribe the recording again (exact word timing for captions), then re-analyse. Uses transcription quota.">
+                    <span>
+                      <Button sx={{ mt: 2, ml: 1 }} disabled={live || busy || reprocess.isPending} onClick={() => reprocess.mutate({ id: s.id, retranscribe: true })}>
+                        Re-transcribe
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
                 {(live || busy) && (
                   <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
                     {live ? 'Available after the stream ends.' : 'Processing is already queued or running.'}

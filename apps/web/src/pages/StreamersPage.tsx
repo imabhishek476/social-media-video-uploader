@@ -48,7 +48,6 @@ export function StreamersPage() {
   const { data: me } = useMe();
   const canEdit = me?.role === UserRole.ADMIN;
   const system = useSystemStatus();
-  const mockProvider = system.data?.youtube?.provider === 'mock';
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounced(search);
@@ -76,12 +75,6 @@ export function StreamersPage() {
         }
       />
 
-      {mockProvider && (
-        <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
-          The <strong>mock YouTube provider</strong> is active (no <code>YOUTUBE_API_KEY</code>). Any @handle resolves to a fake channel; try{' '}
-          <code>@mock-gamer</code>. Use a row’s ⋮ menu to simulate a broadcast starting and ending.
-        </Alert>
-      )}
       {query.isError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {describeError(query.error)}
@@ -236,7 +229,7 @@ export function StreamersPage() {
                 </TableCell>
                 <TableCell align="right">{s.totalSessions}</TableCell>
                 <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  <StreamerActions streamer={s} canEdit={canEdit} mockProvider={mockProvider} onEdit={() => openEdit(s)} />
+                  <StreamerActions streamer={s} canEdit={canEdit} onEdit={() => openEdit(s)} />
                 </TableCell>
               </TableRow>
             ))}

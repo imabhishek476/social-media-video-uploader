@@ -3,7 +3,8 @@ import path from 'node:path';
 import { parseConfig } from '@shorts/config';
 import { UserModel, connectDatabase, disconnectDatabase, mongoose, syncIndexes } from '@shorts/database';
 import { createLogger } from '@shorts/observability';
-import { MockYouTubeProvider, createMemoryQuotaTracker, type YouTubeMetadataProvider } from '@shorts/integrations';
+import { createMemoryQuotaTracker, type InstagramGraphClient, type YouTubeMetadataProvider } from '@shorts/integrations';
+import { MockYouTubeProvider, TemplateMetadataGenerator } from '@shorts/integrations/testing';
 import { QueueRegistry, createRedisConnection } from '@shorts/queue';
 import { UserRole } from '@shorts/shared-types';
 import { createApp } from '../src/app';
@@ -19,14 +20,15 @@ const REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://localhost:6379/15';
 export const ADMIN = { email: 'admin@example.test', password: 'correct-horse-battery' };
 export const VIEWER = { email: 'viewer@example.test', password: 'viewer-password-123' };
 
-/** Defaults to the Mongo-backed mock provider, which also enables /dev/mock-youtube routes. */
-export async function setupTestApp(provider: YouTubeMetadataProvider = new MockYouTubeProvider()) {
+/** Defaults to the Mongo-backed test double for the YouTube Data API. */
+export async function setupTestApp(provider: YouTubeMetadataProvider = new MockYouTubeProvider(), extra: { instagram?: InstagramGraphClient } = {}) {
   const config = parseConfig({
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
     MONGODB_URI: MONGO_URI,
     REDIS_URL,
     JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
+    ENCRYPTION_KEY: 'c'.repeat(64),
     STORAGE_DIR: path.join(os.tmpdir(), 'shorts-api-test-storage'),
   });
   const logger = createLogger({ service: 'api-test', level: 'silent' });
@@ -37,7 +39,7 @@ export async function setupTestApp(provider: YouTubeMetadataProvider = new MockY
   const redis = createRedisConnection(REDIS_URL);
   const queues = new QueueRegistry(redis);
   const quota = createMemoryQuotaTracker();
-  const app = createApp({ config, logger, redis, queues, youtube: { provider, quota } });
+  const app = createApp({ config, logger, redis, queues, youtube: { provider, quota }, metadata: new TemplateMetadataGenerator(), ...extra });
 
   await UserModel.create([
     { email: ADMIN.email, name: 'Admin', role: UserRole.ADMIN, passwordHash: await hashPassword(ADMIN.password) },

@@ -42,7 +42,6 @@ export function StreamerDetailPage() {
   const navigate = useNavigate();
   const { data: me } = useMe();
   const canEdit = me?.role === UserRole.ADMIN;
-  const mockProvider = useSystemStatus().data?.youtube?.provider === 'mock';
   const streamer = useStreamer(id);
   const settings = useSettings();
   const [sessionFilters, setSessionFilters] = useState<Omit<SessionFilters, 'streamerId'>>({ page: 1, pageSize: 10 });
@@ -99,7 +98,6 @@ export function StreamerDetailPage() {
         <StreamerActions
           streamer={s}
           canEdit={canEdit}
-          mockProvider={mockProvider}
           showView={false}
           onEdit={() => setEditOpen(true)}
           onRemoved={() => navigate('/streamers', { replace: true })}

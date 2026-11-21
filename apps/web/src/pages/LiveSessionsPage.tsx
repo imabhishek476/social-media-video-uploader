@@ -8,6 +8,9 @@ import { SessionStatus, UserRole, enumValues } from '@shorts/shared-types';
 import { describeError } from '../api/client';
 import { useMe, useSessions, useStreamers, type SessionFilters } from '../api/hooks';
 import { PageHeader } from '../components/PageHeader';
+import { ImportSessionDialog } from '../components/ImportSessionDialog';
+import Button from '@mui/material/Button';
+import AddLink from '@mui/icons-material/AddLink';
 import { SessionDrawer } from '../components/SessionDrawer';
 import { SessionsTable } from '../components/SessionsTable';
 import { humanize } from '../lib/format';
@@ -25,6 +28,7 @@ export function LiveSessionsPage() {
   const sessions = useSessions(filters);
   const streamers = useStreamers({ page: 1, pageSize: 100 });
   const selected = params.get('session');
+  const [importOpen, setImportOpen] = useState(false);
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params);
@@ -36,7 +40,18 @@ export function LiveSessionsPage() {
 
   return (
     <>
-      <PageHeader title="Live Sessions" subtitle="Every detected broadcast. Processing starts automatically once a stream is confirmed ended." />
+      <PageHeader
+        title="Live Sessions"
+        subtitle="Every detected broadcast. Processing starts automatically once a stream is confirmed ended."
+        actions={
+          me?.role === UserRole.ADMIN && (
+            <Button variant="contained" startIcon={<AddLink />} onClick={() => setImportOpen(true)}>
+              Add missed live
+            </Button>
+          )
+        }
+      />
+      <ImportSessionDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={(id) => setParam('session', id)} />
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
         <TextField select size="small" label="Status" value={filters.status ?? ''} onChange={(e) => setParam('status', e.target.value || null)} sx={{ minWidth: 180 }}>

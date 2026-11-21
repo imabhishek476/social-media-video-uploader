@@ -1,8 +1,14 @@
 import crypto from 'node:crypto';
 import { mongoose, type Model } from '@shorts/database';
-import type { MockChannelDTO } from '@shorts/shared-types';
-import { isChannelId } from './parse';
-import type { ChannelRef, ResolvedChannel, VideoDetails, YouTubeMetadataProvider } from './types';
+import { isChannelId } from '../src/youtube/parse';
+
+export interface MockChannelDTO {
+  channelId: string;
+  handle: string | null;
+  title: string;
+  live: { videoId: string; title: string; startedAt: string } | null;
+}
+import type { ChannelRef, ResolvedChannel, VideoDetails, YouTubeMetadataProvider } from '../src/youtube/types';
 
 /**
  * Development provider (spec §21: "use test fixtures and mock providers so

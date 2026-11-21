@@ -4,7 +4,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { parseConfig } from '@shorts/config';
 import { GeneratedClipModel, HighlightCandidateModel, IntegrationCredentialModel, LiveSessionModel, StreamerChannelModel, connectDatabase, disconnectDatabase, mongoose, syncIndexes } from '@shorts/database';
-import { LocalObjectStorage, MockYouTubeUploader, TemplateMetadataGenerator, YouTubePublishError, type YouTubeOAuthClient, type YouTubeUploader } from '@shorts/integrations';
+import { LocalObjectStorage, YouTubePublishError, type YouTubeOAuthClient, type YouTubeUploader } from '@shorts/integrations';
+import { MockYouTubeUploader, TemplateMetadataGenerator } from '@shorts/integrations/testing';
 import type { QueueRegistry, Redis } from '@shorts/queue';
 import { PublishService, SettingsService, UploadService, YouTubeAccountService, languageCode } from '../src';
 
@@ -42,7 +43,7 @@ async function renderedClip(title = '') {
 }
 
 function services(uploader: YouTubeUploader = new MockYouTubeUploader()) {
-  const account = new YouTubeAccountService({ oauth: null, redis: fakeRedis(), uploaderName: 'mock' });
+  const account = new YouTubeAccountService({ oauth: null, redis: fakeRedis() });
   return {
     uploader,
     publish: new PublishService({ settings, queues, account, metadata: new TemplateMetadataGenerator() }),
@@ -67,6 +68,8 @@ beforeEach(async () => {
   enqueued.length = 0;
   await Promise.all(Object.values(mongoose.connection.collections).map((c) => c.deleteMany({})));
   await settings.update({ publishing: { mode: 'MANUAL_APPROVAL', dailyUploadLimit: 10, minMinutesBetweenUploads: 0 } }, ADMIN);
+  // A connected central channel (approval requires one).
+  await IntegrationCredentialModel.create({ provider: 'youtube', accountId: 'UCcentral', encryptedRefreshToken: 'x', status: 'ACTIVE' });
 });
 
 describe('metadata and approval', () => {
@@ -101,9 +104,10 @@ describe('metadata and approval', () => {
     await expect(publish.updateMetadata(clipId, { title: 'late' })).resolves.toBeUndefined(); // QUEUED can still be edited
   });
 
-  it('requires a connected channel for real uploads', async () => {
+  it('requires a connected channel', async () => {
+    await IntegrationCredentialModel.deleteMany({});
     const { clipId } = await renderedClip('T');
-    const account = new YouTubeAccountService({ oauth: null, redis: fakeRedis(), uploaderName: 'youtube' });
+    const account = new YouTubeAccountService({ oauth: null, redis: fakeRedis() });
     const publish = new PublishService({ settings, queues, account, metadata: new TemplateMetadataGenerator() });
     await expect(publish.approve(clipId, ADMIN)).rejects.toThrow(/Connect the central YouTube channel/);
   });
@@ -173,7 +177,8 @@ describe('YouTubeAccountService', () => {
     }) as unknown as YouTubeOAuthClient;
 
   it('connects with a single-use state and stores the refresh token encrypted', async () => {
-    const acc = new YouTubeAccountService({ oauth: fakeOAuth(), redis: fakeRedis(), encryptionKey: KEY, uploaderName: 'youtube' });
+    await IntegrationCredentialModel.deleteMany({});
+    const acc = new YouTubeAccountService({ oauth: fakeOAuth(), redis: fakeRedis(), encryptionKey: KEY });
     const state = new URL(await acc.startConnect(ADMIN)).searchParams.get('state')!;
     expect(await acc.completeConnect(state, 'code')).toEqual({ channelId: 'UCcentral', channelTitle: 'Central' });
     await expect(acc.completeConnect(state, 'code')).rejects.toThrow(/expired or was already used/);
@@ -182,14 +187,14 @@ describe('YouTubeAccountService', () => {
     expect(cred.encryptedRefreshToken).not.toContain('rt-secret');
     expect(await acc.isConnected()).toBe(true);
 
-    const fresh = new YouTubeAccountService({ oauth: fakeOAuth(), redis: fakeRedis(), encryptionKey: KEY, uploaderName: 'youtube' });
+    const fresh = new YouTubeAccountService({ oauth: fakeOAuth(), redis: fakeRedis(), encryptionKey: KEY });
     expect(await fresh.accessToken()).toBe('at-2');
   });
 
   it('marks the connection for reconnect when Google revokes it', async () => {
-    const ok = new YouTubeAccountService({ oauth: fakeOAuth(), redis: fakeRedis(), encryptionKey: KEY, uploaderName: 'youtube' });
+    const ok = new YouTubeAccountService({ oauth: fakeOAuth(), redis: fakeRedis(), encryptionKey: KEY });
     await ok.completeConnect(new URL(await ok.startConnect(ADMIN)).searchParams.get('state')!, 'c');
-    const revoked = new YouTubeAccountService({ oauth: fakeOAuth(new YouTubePublishError('RECONNECT', 'revoked', false)), redis: fakeRedis(), encryptionKey: KEY, uploaderName: 'youtube' });
+    const revoked = new YouTubeAccountService({ oauth: fakeOAuth(new YouTubePublishError('RECONNECT', 'revoked', false)), redis: fakeRedis(), encryptionKey: KEY });
     await expect(revoked.accessToken()).rejects.toMatchObject({ code: 'RECONNECT' });
     expect((await IntegrationCredentialModel.findOne({ provider: 'youtube' }).lean())!).toMatchObject({ status: 'ERROR', lastError: 'revoked' });
     expect(await revoked.isConnected()).toBe(false);

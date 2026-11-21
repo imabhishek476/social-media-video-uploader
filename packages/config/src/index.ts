@@ -50,32 +50,30 @@ const EnvSchema = z
     STORAGE_DIR: z.string().default('./storage'),
     TEMP_FILE_MAX_AGE_HOURS: z.coerce.number().positive().default(24),
 
+    /** YouTube Data API key (live detection, channel lookup). */
     YOUTUBE_API_KEY: optionalString,
-    /** `youtube` (Data API) or `mock`. Defaults to `youtube` when an API key is set. */
-    YOUTUBE_METADATA_PROVIDER: z.enum(['youtube', 'mock']).optional(),
     /** `rss` = free uploads feed + batched videos.list (1 unit/50 videos); `search` = search.list (100 units/call). */
     YOUTUBE_LIVE_DETECTION: z.enum(['rss', 'search']).default('rss'),
     YOUTUBE_DAILY_QUOTA: z.coerce.number().int().positive().default(10_000),
     YOUTUBE_CLIENT_ID: optionalString,
     YOUTUBE_CLIENT_SECRET: optionalString,
     YOUTUBE_REDIRECT_URI: optionalString,
-    /** `youtube` = real uploads via OAuth; `mock` = fake uploads. Defaults to `youtube` when an OAuth client is set. */
-    YOUTUBE_UPLOAD_PROVIDER: z.enum(['youtube', 'mock']).optional(),
-    /** `openai` = Whisper-style /audio/transcriptions API (OpenAI, Groq, …); `mock` = offline placeholder. */
-    TRANSCRIPTION_PROVIDER: z.enum(['mock', 'openai']).default('mock'),
+    /** `openai` = Whisper-style /audio/transcriptions API (OpenAI, Groq, …). */
+    TRANSCRIPTION_PROVIDER: z.enum(['openai']).default('openai'),
     TRANSCRIPTION_API_KEY: optionalString,
     TRANSCRIPTION_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
     TRANSCRIPTION_MODEL: z.string().default('whisper-1'),
     TRANSCRIPTION_COST_PER_MINUTE: z.coerce.number().min(0).default(0.006),
     TRANSCRIPTION_LANGUAGE: optionalString,
-    /** `anthropic` = Claude, `gemini` = Google Gemini, `mock` = offline loudness/keyword heuristic. */
-    LLM_PROVIDER: z.enum(['mock', 'anthropic', 'gemini']).default('mock'),
+    /** `anthropic` = Claude, `gemini` = Google Gemini. */
+    LLM_PROVIDER: z.enum(['anthropic', 'gemini']).default('gemini'),
     /** Optional: without it the Anthropic SDK reads ANTHROPIC_API_KEY. */
     LLM_API_KEY: optionalString,
     LLM_MODEL: z.string().default('claude-opus-5-5'),
     GEMINI_API_KEY: optionalString,
     GEMINI_MODEL: z.string().optional().transform((v) => (v && v.trim() ? v.trim() : 'gemini-3.8-flash')),
     VIDEO_SOURCE_PROVIDER: z.string().default('local'),
+    YTDLP_BINARY: z.string().default('yt-dlp'),
     STORAGE_PROVIDER: z.enum(['local', 'gcs']).default('local'),
     GCS_BUCKET: optionalString,
     GCS_PROJECT_ID: optionalString,
@@ -99,20 +97,21 @@ const EnvSchema = z
     if (env.STORAGE_PROVIDER === 'gcs' && !env.GCS_BUCKET) {
       ctx.addIssue({ code: 'custom', path: ['GCS_BUCKET'], message: 'GCS_BUCKET is required when STORAGE_PROVIDER=gcs' });
     }
-    if (env.TRANSCRIPTION_PROVIDER === 'openai' && !env.TRANSCRIPTION_API_KEY) {
-      ctx.addIssue({ code: 'custom', path: ['TRANSCRIPTION_API_KEY'], message: 'TRANSCRIPTION_API_KEY is required when TRANSCRIPTION_PROVIDER=openai' });
-    }
-    if (env.LLM_PROVIDER === 'gemini' && !env.GEMINI_API_KEY) {
-      ctx.addIssue({ code: 'custom', path: ['GEMINI_API_KEY'], message: 'GEMINI_API_KEY is required when LLM_PROVIDER=gemini' });
-    }
-    if (env.YOUTUBE_UPLOAD_PROVIDER === 'youtube' && (!env.YOUTUBE_CLIENT_ID || !env.YOUTUBE_CLIENT_SECRET)) {
-      ctx.addIssue({ code: 'custom', path: ['YOUTUBE_CLIENT_ID'], message: 'YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET are required when YOUTUBE_UPLOAD_PROVIDER=youtube' });
-    }
-    if ((env.YOUTUBE_UPLOAD_PROVIDER ?? (env.YOUTUBE_CLIENT_ID ? 'youtube' : 'mock')) === 'youtube' && !env.ENCRYPTION_KEY) {
-      ctx.addIssue({ code: 'custom', path: ['ENCRYPTION_KEY'], message: 'ENCRYPTION_KEY is required to store the YouTube refresh token' });
-    }
-    if (env.YOUTUBE_METADATA_PROVIDER === 'youtube' && !env.YOUTUBE_API_KEY) {
-      ctx.addIssue({ code: 'custom', path: ['YOUTUBE_API_KEY'], message: 'YOUTUBE_API_KEY is required when YOUTUBE_METADATA_PROVIDER=youtube' });
+    // Real providers are required to run the app. Tests build services with
+    // test doubles directly, so the test environment is exempt.
+    if (env.NODE_ENV !== 'test') {
+      const need = (key: keyof typeof env, why: string) => {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: `${key} is required (${why})` });
+      };
+      need('YOUTUBE_API_KEY', 'live detection via the YouTube Data API');
+      need('YOUTUBE_CLIENT_ID', 'uploading to the central YouTube channel');
+      need('YOUTUBE_CLIENT_SECRET', 'uploading to the central YouTube channel');
+      need('ENCRYPTION_KEY', 'storing the YouTube refresh token');
+      need('TRANSCRIPTION_API_KEY', 'speech-to-text');
+      if (env.LLM_PROVIDER === 'gemini') need('GEMINI_API_KEY', 'highlight analysis and metadata with Gemini');
+      if (env.LLM_PROVIDER === 'anthropic' && !env.LLM_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+        ctx.addIssue({ code: 'custom', path: ['LLM_API_KEY'], message: 'LLM_API_KEY or ANTHROPIC_API_KEY is required for LLM_PROVIDER=anthropic' });
+      }
     }
     if (env.NODE_ENV === 'production') {
       if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
@@ -146,14 +145,12 @@ export interface AppConfig {
       clientId?: string;
       clientSecret?: string;
       redirectUri: string;
-      uploadProvider: 'youtube' | 'mock';
-      metadataProvider: 'youtube' | 'mock';
       liveDetection: 'rss' | 'search';
       dailyQuota: number;
     };
-    transcription: { provider: 'mock' | 'openai'; apiKey?: string; baseUrl: string; model: string; costPerMinuteUsd: number; language?: string };
-    llm: { provider: 'mock' | 'anthropic' | 'gemini'; apiKey?: string; model: string; gemini: { apiKey?: string; model: string } };
-    videoSource: { provider: string };
+    transcription: { provider: 'openai'; apiKey?: string; baseUrl: string; model: string; costPerMinuteUsd: number; language?: string };
+    llm: { provider: 'anthropic' | 'gemini'; apiKey?: string; model: string; gemini: { apiKey?: string; model: string } };
+    videoSource: { provider: string; ytdlpBinary: string };
     storage: { provider: 'local' | 'gcs'; bucket?: string; projectId?: string; keyFile?: string };
     notifications: { telegramBotToken?: string; telegramChatId?: string };
     objectStorage: { endpoint?: string; bucket?: string; accessKey?: string; secretKey?: string };
@@ -213,8 +210,6 @@ export function parseConfig(source: Record<string, string | undefined>, baseDir 
         clientId: e.YOUTUBE_CLIENT_ID,
         clientSecret: e.YOUTUBE_CLIENT_SECRET,
         redirectUri: e.YOUTUBE_REDIRECT_URI ?? `http://localhost:${e.API_PORT ?? e.PORT}/api/v1/integrations/youtube/callback`,
-        uploadProvider: e.YOUTUBE_UPLOAD_PROVIDER ?? (e.YOUTUBE_CLIENT_ID && e.YOUTUBE_CLIENT_SECRET ? 'youtube' : 'mock'),
-        metadataProvider: e.YOUTUBE_METADATA_PROVIDER ?? (e.YOUTUBE_API_KEY ? 'youtube' : 'mock'),
         liveDetection: e.YOUTUBE_LIVE_DETECTION,
         dailyQuota: e.YOUTUBE_DAILY_QUOTA,
       },
@@ -232,7 +227,7 @@ export function parseConfig(source: Record<string, string | undefined>, baseDir 
         model: e.LLM_PROVIDER === 'gemini' ? e.GEMINI_MODEL : e.LLM_MODEL,
         gemini: { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL },
       },
-      videoSource: { provider: e.VIDEO_SOURCE_PROVIDER },
+      videoSource: { provider: e.VIDEO_SOURCE_PROVIDER, ytdlpBinary: e.YTDLP_BINARY },
       storage: { provider: e.STORAGE_PROVIDER, bucket: e.GCS_BUCKET, projectId: e.GCS_PROJECT_ID, keyFile: e.GOOGLE_APPLICATION_CREDENTIALS },
       notifications: { telegramBotToken: e.TELEGRAM_BOT_TOKEN, telegramChatId: e.TELEGRAM_CHAT_ID },
       objectStorage: {

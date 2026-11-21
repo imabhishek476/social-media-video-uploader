@@ -38,14 +38,22 @@ const assTime = (t: number) => {
 const assText = (t: string) => t.replace(/\\/g, '').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim();
 
 /**
- * Word timings within a segment. Whisper gives segment times; words are
- * spread across the segment in proportion to their length, which is close
- * enough for word-by-word highlighting.
+ * Word timings for captions. Uses the exact per-word times from the
+ * transcription provider when present; otherwise words are spread across
+ * their segment in proportion to their length (older transcripts).
  */
 export function wordsFromSegments(segments: TranscriptSegment[], clipStart: number, clipEnd: number): TimedWord[] {
   const out: TimedWord[] = [];
   for (const seg of segments) {
     if (seg.endSeconds <= clipStart || seg.startSeconds >= clipEnd) continue;
+    if (seg.words?.length) {
+      for (const w of seg.words) {
+        const text = assText(w.word);
+        if (!text || w.endSeconds <= clipStart || w.startSeconds >= clipEnd) continue;
+        out.push({ text, start: Math.max(w.startSeconds, clipStart) - clipStart, end: Math.min(w.endSeconds, clipEnd) - clipStart });
+      }
+      continue;
+    }
     const words = assText(seg.text).split(' ').filter(Boolean);
     if (!words.length) continue;
     const span = Math.max(0.2, seg.endSeconds - seg.startSeconds);

@@ -82,3 +82,9 @@ export function mergeHighlights(list: RawHighlight[], maxSeconds: number): RawHi
 
 /** Final score: the analyzer's judgement, nudged by the audio signal. */
 export const blendScore = (modelScore: number, audio: number, audioWeight: number) => Math.round(modelScore * (1 - audioWeight) + audio * audioWeight);
+
+/** Final score with live-chat activity as an extra signal (when chat was sampled). */
+export function blendSignals(modelScore: number, signals: { audio: number; audioWeight: number; chat?: number | null; chatWeight?: number }): number {
+  const cw = signals.chat == null ? 0 : (signals.chatWeight ?? 0);
+  return Math.round(modelScore * (1 - signals.audioWeight - cw) + signals.audio * signals.audioWeight + (signals.chat ?? 0) * cw);
+}

@@ -130,3 +130,27 @@ describe('YouTubeDataApiProvider', () => {
     expect(await quota.usedToday()).toBe(100);
   });
 });
+
+describe('YouTubeDataApiProvider live chat', () => {
+  it('reads message times, follows tokens and treats an ended chat as ended', async () => {
+    const urls: string[] = [];
+    const replies = [
+      { status: 200, body: { items: [{ liveStreamingDetails: { activeLiveChatId: 'CHAT' } }] } },
+      { status: 200, body: { nextPageToken: 'n1', pollingIntervalMillis: 3000, items: [{ snippet: { publishedAt: '2026-11-01T18:00:05Z' } }, { snippet: {} }] } },
+      { status: 403, body: { error: { errors: [{ reason: 'liveChatEnded' }] } } },
+    ];
+    const fetchFn = (async (url: string) => {
+      urls.push(url);
+      const r = replies.shift()!;
+      return new Response(JSON.stringify(r.body), { status: r.status });
+    }) as unknown as typeof fetch;
+    const p = new YouTubeDataApiProvider({ apiKey: 'k', liveDetection: 'rss', fetchFn });
+    expect(await p.getActiveLiveChatId('vid')).toBe('CHAT');
+    const page = await p.listChatMessages('CHAT', null);
+    expect(page).toMatchObject({ nextPageToken: 'n1', pollingIntervalMs: 3000, ended: false });
+    expect(page.messageTimes.map((d) => d.toISOString())).toEqual(['2026-11-01T18:00:05.000Z']);
+    expect(await p.listChatMessages('CHAT', 'n1')).toMatchObject({ ended: true, messageTimes: [] });
+    expect(urls[2]).toContain('liveChat/messages?');
+    expect(urls[2]).toContain('pageToken=n1');
+  });
+});

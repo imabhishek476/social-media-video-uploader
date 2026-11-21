@@ -11,6 +11,7 @@ const scoreBreakdownSchema = new Schema(
     context: Number,
     hook: Number,
     audio: Number,
+    chat: Number,
     payoff: Number,
     clarity: Number,
     pacing: Number,

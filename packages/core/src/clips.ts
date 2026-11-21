@@ -1,7 +1,7 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { GeneratedClipModel, HighlightCandidateModel, LiveSessionModel, mongoose } from '@shorts/database';
-import type { ObjectStorage } from '@shorts/integrations';
+import type { FacecamDetector, ObjectStorage } from '@shorts/integrations';
 import type { Logger } from '@shorts/observability';
 import { UnrecoverableError } from '@shorts/queue';
 import {
@@ -17,13 +17,15 @@ import {
 import { loadTranscriptSegments } from './analysis';
 import { buildAssCaptions, type CaptionStyle } from './captions';
 import { DomainError, isDuplicateKeyError } from './errors';
-import { SHORT_HEIGHT, SHORT_WIDTH, renderShort, type RenderMode } from './render';
+import { SHORT_HEIGHT, SHORT_WIDTH, extractFrames, renderShort, type FrameBox, type RenderMode } from './render';
 import type { SettingsService } from './settings';
 
 export interface RenderDeps {
   settings: SettingsService;
   storage: ObjectStorage;
   workDir: string;
+  /** Finds the webcam overlay for the facecam + gameplay layout. */
+  facecam?: FacecamDetector;
   logger?: Logger;
 }
 
@@ -88,7 +90,9 @@ export class RenderService {
 
     await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { processingStatus: ProcessingStatus.RUNNING, processingStage: RENDER_STAGE } });
     const { clips: clipSettings, subtitles } = (await this.deps.settings.getValues()).values;
-    const mode: RenderMode = clipSettings.reframingMode === 'BLUR_FIT' ? 'BLUR_FIT' : 'CENTER_CROP';
+    const configured: RenderMode = clipSettings.reframingMode === 'BLUR_FIT' || clipSettings.reframingMode === 'FACECAM_SPLIT' ? clipSettings.reframingMode : 'CENTER_CROP';
+    let mode: RenderMode = configured;
+    let facecam: FrameBox | null = null;
     const style: CaptionStyle = {
       fontFamily: subtitles.fontFamily,
       fontSize: subtitles.fontSize,
@@ -111,6 +115,11 @@ export class RenderService {
         await GeneratedClipModel.updateMany({ _id: { $in: claimed.map((c) => c.clipId) } }, { $set: { renderStatus: RenderStatus.PENDING, renderStartedAt: null } });
         throw err;
       }
+      if (configured === 'FACECAM_SPLIT') {
+        facecam = await this.resolveFacecam(sessionId, source, session.sourceMedia.durationSeconds ?? 0, work);
+        // No webcam (IRL, just chatting, or not found): keep the whole frame visible instead.
+        if (!facecam) mode = 'BLUR_FIT';
+      }
       await onProgress?.(10);
 
       for (const [i, { clipId, version, candidate: c }] of claimed.entries()) {
@@ -128,6 +137,7 @@ export class RenderService {
             endSeconds: c.endSeconds,
             keyMomentSeconds: c.keyMomentSeconds ?? null,
             mode,
+            facecam,
           });
           await storage.upload(keys.video, files.video, 'video/mp4');
           await storage.upload(keys.thumbnail, files.thumb, 'image/jpeg');
@@ -167,6 +177,30 @@ export class RenderService {
       await this.refreshSession(sessionId);
     }
     return { rendered, skipped, failed };
+  }
+
+  /**
+   * The session's facecam box: a manual or earlier detection wins; otherwise
+   * three frames go to the vision model once and the result (or "none") is
+   * stored so later renders don't ask again. Detection errors are not
+   * stored, so the next render retries.
+   */
+  private async resolveFacecam(sessionId: string, sourcePath: string, durationSeconds: number, work: string): Promise<FrameBox | null> {
+    const s = await LiveSessionModel.findById(sessionId).select('facecam').lean();
+    const f = s?.facecam;
+    if (f?.source === 'none') return null;
+    if (f?.source && f.w && f.h) return { x: f.x ?? 0, y: f.y ?? 0, w: f.w, h: f.h };
+    if (!this.deps.facecam || durationSeconds < 5) return null;
+    try {
+      const frames = await extractFrames(sourcePath, [0.25, 0.5, 0.75].map((p) => p * durationSeconds), path.join(work, 'frames'));
+      const box = await this.deps.facecam.detect(frames);
+      await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { facecam: box ? { ...box, source: 'detected', detectedAt: new Date() } : { source: 'none', detectedAt: new Date() } } });
+      this.deps.logger?.info({ liveSessionId: sessionId, box, detector: this.deps.facecam.name }, box ? 'Facecam detected' : 'No facecam found');
+      return box;
+    } catch (err) {
+      this.deps.logger?.warn({ err: (err as Error).message, liveSessionId: sessionId }, 'Facecam detection failed; using the full-frame layout this time');
+      return null;
+    }
   }
 
   /** Claim a clip for rendering: a new version, a failed one, or a stale in-progress one. */
@@ -296,6 +330,12 @@ export function toClipDTO(c: any): GeneratedClipDTO {
     stats: c.stats?.fetchedAt
       ? { views: c.stats.views ?? 0, likes: c.stats.likes ?? 0, comments: c.stats.comments ?? 0, privacyStatus: c.stats.privacyStatus ?? null, fetchedAt: c.stats.fetchedAt.toISOString() }
       : null,
+    instagram: {
+      status: c.instagram?.status ?? 'NOT_POSTED',
+      permalink: c.instagram?.permalink ?? null,
+      publishedAt: c.instagram?.publishedAt ? c.instagram.publishedAt.toISOString() : null,
+      lastError: c.instagram?.lastError ?? null,
+    },
     filesExpired: Boolean(c.filesExpiredAt),
     lastError: c.lastError ?? null,
     createdAt: c.createdAt.toISOString(),

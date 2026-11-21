@@ -30,6 +30,8 @@ const integrationCredentialSchema = new Schema(
     accountTitle: { type: String, default: null },
     scopes: { type: [String], default: [] },
     encryptedRefreshToken: { type: String, required: true, select: false },
+    /** For providers whose stored token itself expires (Instagram long-lived tokens). */
+    tokenExpiresAt: { type: Date, default: null },
     status: { type: String, enum: ['ACTIVE', 'REVOKED', 'ERROR'], default: 'ACTIVE' },
     lastError: { type: String, default: null },
     connectedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },

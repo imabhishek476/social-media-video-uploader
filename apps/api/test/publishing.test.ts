@@ -1,7 +1,7 @@
 import request from 'supertest';
 import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { GeneratedClipModel, HighlightCandidateModel, LiveSessionModel, StreamerChannelModel } from '@shorts/database';
+import { GeneratedClipModel, HighlightCandidateModel, IntegrationCredentialModel, LiveSessionModel, StreamerChannelModel } from '@shorts/database';
 import { ADMIN, VIEWER, setupTestApp } from './helpers';
 
 let app: Express;
@@ -23,11 +23,12 @@ async function clip(over: Record<string, unknown> = {}) {
 }
 
 describe('Publishing endpoints', () => {
-  it('reports simulated uploads in settings when no OAuth client is configured', async () => {
+  it('reports an unconfigured OAuth client in settings', async () => {
     const admin = request.agent(app);
     await admin.post('/api/v1/auth/login').send(ADMIN).expect(200);
     const s = await admin.get('/api/v1/settings').expect(200);
-    expect(s.body.youtube).toMatchObject({ uploadMode: 'mock', oauthConfigured: false, connected: false });
+    expect(s.body.youtube).toMatchObject({ oauthConfigured: false, connected: false });
+    expect(s.body.youtube.uploadMode).toBeUndefined();
     const connect = await admin.get('/api/v1/integrations/youtube/connect').expect(400);
     expect(connect.body.error.code).toBe('YOUTUBE_NOT_CONFIGURED');
   });
@@ -39,6 +40,9 @@ describe('Publishing endpoints', () => {
 
     const bad = await admin.patch(`/api/v1/clips/${id}`).send({ title: 'no <tags>' }).expect(400);
     expect(bad.body.error.message).toMatch(/< or >/);
+    const notConnected = await admin.post(`/api/v1/clips/${id}/approve`).send({}).expect(409);
+    expect(notConnected.body.error.code).toBe('METADATA_MISSING');
+    await IntegrationCredentialModel.create({ provider: 'youtube', accountId: 'UCx', encryptedRefreshToken: 'x', status: 'ACTIVE' });
     const noTitle = await admin.post(`/api/v1/clips/${id}/approve`).send({}).expect(409);
     expect(noTitle.body.error.code).toBe('METADATA_MISSING');
 

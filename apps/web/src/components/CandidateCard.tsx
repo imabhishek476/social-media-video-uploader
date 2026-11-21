@@ -14,7 +14,7 @@ import type { HighlightCandidateDTO } from '@shorts/shared-types';
 import { formatClock, humanize } from '../lib/format';
 import { StatusChip } from './StatusChip';
 
-const BREAKDOWN_ORDER = ['hook', 'emotion', 'entertainment', 'payoff', 'context', 'clarity', 'audio'];
+const BREAKDOWN_ORDER = ['hook', 'emotion', 'entertainment', 'payoff', 'context', 'clarity', 'audio', 'chat'];
 
 export type RenderState = 'RENDERED' | 'RENDERING' | 'RENDER_FAILED' | 'OUTDATED' | 'NOT_RENDERED' | 'UPLOADING' | 'PUBLISHED';
 

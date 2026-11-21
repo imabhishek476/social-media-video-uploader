@@ -1,5 +1,5 @@
 import type { QuotaTracker } from './quota';
-import { ProviderError, type ChannelRef, type ResolvedChannel, type VideoDetails, type YouTubeMetadataProvider } from './types';
+import { ProviderError, type ChannelRef, type LiveChatPage, type LiveChatProvider, type ResolvedChannel, type VideoDetails, type YouTubeMetadataProvider } from './types';
 
 /**
  * YouTube Data API v3 metadata provider.
@@ -20,7 +20,8 @@ export interface DataApiProviderOptions {
   timeoutMs?: number;
 }
 
-const COST = { channels: 1, videos: 1, search: 100 } as const;
+// liveChatMessages.list is listed at 5 units per call (verify against current Google docs).
+const COST = { channels: 1, videos: 1, search: 100, liveChat: 5 } as const;
 const VIDEO_BATCH = 50;
 const RSS_VIDEO_ID_RE = /<yt:videoId>([A-Za-z0-9_-]{11})<\/yt:videoId>/g;
 
@@ -36,7 +37,7 @@ interface ApiVideo {
 
 const toDate = (v?: string) => (v ? new Date(v) : null);
 
-export class YouTubeDataApiProvider implements YouTubeMetadataProvider {
+export class YouTubeDataApiProvider implements YouTubeMetadataProvider, LiveChatProvider {
   readonly name = 'youtube' as const;
   private readonly fetchFn: typeof fetch;
   private readonly apiBase: string;
@@ -116,6 +117,42 @@ export class YouTubeDataApiProvider implements YouTubeMetadataProvider {
     return out;
   }
 
+  async getActiveLiveChatId(videoId: string): Promise<string | null> {
+    const res = await this.api<{ items?: Array<{ liveStreamingDetails?: { activeLiveChatId?: string } }> }>(
+      'videos',
+      { part: 'liveStreamingDetails', id: videoId, fields: 'items(liveStreamingDetails(activeLiveChatId))' },
+      COST.videos,
+    );
+    return res.items?.[0]?.liveStreamingDetails?.activeLiveChatId ?? null;
+  }
+
+  async listChatMessages(liveChatId: string, pageToken: string | null): Promise<LiveChatPage> {
+    try {
+      const res = await this.api<{ nextPageToken?: string; pollingIntervalMillis?: number; offlineAt?: string; items?: Array<{ snippet?: { publishedAt?: string } }> }>(
+        'liveChat/messages',
+        {
+          liveChatId,
+          part: 'snippet',
+          maxResults: '2000',
+          fields: 'nextPageToken,pollingIntervalMillis,offlineAt,items(snippet(publishedAt))',
+          ...(pageToken ? { pageToken } : {}),
+        },
+        COST.liveChat,
+      );
+      return {
+        messageTimes: (res.items ?? []).map((i) => toDate(i.snippet?.publishedAt)).filter((d): d is Date => d !== null && !Number.isNaN(d.getTime())),
+        nextPageToken: res.nextPageToken ?? null,
+        pollingIntervalMs: res.pollingIntervalMillis ?? 5000,
+        ended: Boolean(res.offlineAt),
+      };
+    } catch (err) {
+      if (err instanceof ProviderError && /liveChatEnded|liveChatNotFound|liveChatDisabled|forbidden/.test(err.message)) {
+        return { messageTimes: [], nextPageToken: null, pollingIntervalMs: 0, ended: true };
+      }
+      throw err;
+    }
+  }
+
   // ---------------------------------------------------------------------------
 
   private async channelBy(filter: Record<string, string>): Promise<ResolvedChannel | null> {
@@ -160,7 +197,10 @@ export class YouTubeDataApiProvider implements YouTubeMetadataProvider {
     try {
       return await this.fetchFn(url, { signal: AbortSignal.timeout(this.opts.timeoutMs ?? 10_000), headers: { Accept: 'application/json, application/xml' } });
     } catch (err) {
-      throw new ProviderError('NETWORK', `YouTube request failed: ${(err as Error).name}`, true);
+      // Show the underlying cause (e.g. ECONNRESET, ENOTFOUND, timeout) but never the URL (it holds the key).
+      const e = err as Error & { cause?: { code?: string; message?: string } };
+      const cause = e.name === 'TimeoutError' ? 'timed out' : (e.cause?.code ?? e.cause?.message ?? e.message);
+      throw new ProviderError('NETWORK', `YouTube request failed: ${e.name} (${String(cause).replace(/key=[^&\s]+/g, 'key=…').slice(0, 120)})`, true);
     }
   }
 }

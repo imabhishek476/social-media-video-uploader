@@ -145,12 +145,8 @@ export function DashboardPage() {
             {yt && (
               <ListItem disableGutters disablePadding sx={{ mb: 1 }}>
                 <ListItemText
-                  primary={yt.provider === 'mock' ? 'YouTube metadata: mock provider' : `YouTube Data API (${yt.liveDetection} detection)`}
-                  secondary={
-                    yt.provider === 'mock'
-                      ? 'Set YOUTUBE_API_KEY to monitor real channels'
-                      : `Quota today: ${yt.quotaUsedToday.toLocaleString()} / ${yt.dailyQuota.toLocaleString()} units${yt.pausedUntil ? ` · paused until ${new Date(yt.pausedUntil).toLocaleTimeString()}` : ''}`
-                  }
+                  primary={`YouTube Data API (${yt.liveDetection} detection)`}
+                  secondary={`Quota today: ${yt.quotaUsedToday.toLocaleString()} / ${yt.dailyQuota.toLocaleString()} units${yt.pausedUntil ? ` · paused until ${new Date(yt.pausedUntil).toLocaleTimeString()}` : ''}`}
                 />
               </ListItem>
             )}

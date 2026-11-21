@@ -22,6 +22,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       intervalSeconds: config.defaults.channelMonitorIntervalSeconds,
       endConfirmationChecks: 3,
       sessionWatchIntervalSeconds: 60,
+      chatPollSeconds: 60,
     },
     processing: {
       maxConcurrentJobs: config.defaults.maxConcurrentTranscodeJobs,
@@ -53,6 +54,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       windowStartHour: 0,
       windowEndHour: 24,
       timezone: 'UTC',
+      instagramMode: 'MANUAL',
     },
     costs: { monthlyBudgetUsd: 0 },
     providers: {
@@ -83,18 +85,20 @@ export class SettingsService {
       { upsert: true, new: true },
     ).lean();
     const merged = mergeSettings(defaultSettings(this.config), (doc?.values ?? {}) as Record<string, object>);
+    // Providers are chosen in .env; always report what is actually configured.
+    merged.providers = defaultSettings(this.config).providers;
     return { values: merged, updatedAt: doc?.updatedAt ?? null };
   }
 
   async get(): Promise<AppSettingsDTO> {
-    const [{ values, updatedAt }, yt] = await Promise.all([
+    const [{ values, updatedAt }, yt, ig] = await Promise.all([
       this.getValues(),
       IntegrationCredentialModel.findOne({ provider: 'youtube' }).lean(),
+      IntegrationCredentialModel.findOne({ provider: 'instagram' }).lean(),
     ]);
     return {
       ...values,
       youtube: {
-        uploadMode: this.config.integrations.youtube.uploadProvider,
         oauthConfigured: Boolean(this.config.integrations.youtube.clientId && this.config.integrations.youtube.clientSecret && this.config.encryptionKey),
         status: (yt?.status as 'ACTIVE' | 'REVOKED' | 'ERROR' | undefined) ?? null,
         lastError: yt?.lastError ?? null,
@@ -102,6 +106,14 @@ export class SettingsService {
         channelId: yt?.accountId ?? null,
         channelTitle: yt?.accountTitle ?? null,
         connectedAt: yt?.connectedAt ? yt.connectedAt.toISOString() : null,
+      },
+      instagram: {
+        connected: ig?.status === 'ACTIVE',
+        status: (ig?.status as 'ACTIVE' | 'REVOKED' | 'ERROR' | undefined) ?? null,
+        userId: ig?.accountId ?? null,
+        username: ig?.accountTitle ?? null,
+        tokenExpiresAt: ig?.tokenExpiresAt ? ig.tokenExpiresAt.toISOString() : null,
+        lastError: ig?.lastError ?? null,
       },
       updatedAt: updatedAt ? updatedAt.toISOString() : null,
     };

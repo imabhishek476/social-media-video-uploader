@@ -22,8 +22,9 @@ export function createSessionRoutes(sessions: LiveSessionService, settings: Sett
   });
 
   router.post('/:id/reprocess', adminOnly, async (req, res) => {
-    const session = await sessions.reprocess(String(req.params.id));
-    await recordAudit(req, { action: 'session.reprocess', entityType: 'LiveSession', entityId: session.id, metadata: { round: session.reprocessCount } });
+    const retranscribe = req.body?.retranscribe === true;
+    const session = await sessions.reprocess(String(req.params.id), { retranscribe });
+    await recordAudit(req, { action: 'session.reprocess', entityType: 'LiveSession', entityId: session.id, metadata: { round: session.reprocessCount, retranscribe } });
     res.status(202).json(session);
   });
 

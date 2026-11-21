@@ -2,7 +2,8 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LiveMonitorService, LiveSessionService, SettingsService } from '@shorts/core';
-import { MockYouTubeProvider, createMemoryQuotaTracker } from '@shorts/integrations';
+import { createMemoryQuotaTracker } from '@shorts/integrations';
+import { MockYouTubeProvider } from '@shorts/integrations/testing';
 import type { QueueRegistry } from '@shorts/queue';
 import type { AppConfig } from '@shorts/config';
 import { ADMIN, VIEWER, setupTestApp } from './helpers';
@@ -79,7 +80,7 @@ describe('streamer management API', () => {
 
   it('runs the full live lifecycle through the mock provider', async () => {
     const admin = await agentFor();
-    await admin.post(`/api/v1/dev/mock-youtube/channels/${channelId}/go-live`).send({ title: 'Ranked grind' }).expect(201);
+    await provider.goLive(channelId, 'Ranked grind');
 
     const t0 = new Date(Date.now() + 1000);
     expect(await monitor.tick(t0)).toMatchObject({ live: 1, newSessions: 1 });
@@ -97,8 +98,8 @@ describe('streamer management API', () => {
     const dash = await admin.get('/api/v1/dashboard/summary').expect(200);
     expect(dash.body.counts).toMatchObject({ streamers: 1, liveStreamers: 1 });
 
-    await admin.post(`/api/v1/dev/mock-youtube/channels/${channelId}/end-live`).send({ mode: 'clean' }).expect(200);
-    await admin.post(`/api/v1/dev/mock-youtube/channels/${channelId}/end-live`).send({}).expect(409);
+    expect(await provider.endLive(channelId, 'clean')).not.toBeNull();
+    expect(await provider.endLive(channelId)).toBeNull(); // not live any more
     expect((await sessions.watchTick(new Date(t0.getTime() + 61_000))).ended).toBe(1);
 
     const ended = await admin.get(`/api/v1/live-sessions/${session.id}`).expect(200);

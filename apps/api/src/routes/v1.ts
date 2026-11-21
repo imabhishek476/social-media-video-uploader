@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { UserRole, loginSchema, settingsUpdateSchema, type HealthDTO } from '@shorts/shared-types';
+import { UserRole, facecamUpdateSchema, instagramConnectSchema, loginSchema, sessionImportSchema, settingsUpdateSchema, type HealthDTO } from '@shorts/shared-types';
+import { LiveSessionModel } from '@shorts/database';
 import type { AppDeps } from '../context';
 import { AppError, ErrorCode, parseOrThrow } from '../errors';
 import { requireAuth, requireRole } from '../middleware/auth';
@@ -8,12 +9,12 @@ import { recordAudit } from '../services/audit.service';
 import { AuthService, SESSION_COOKIE } from '../services/auth.service';
 import { getDashboardSummary } from '../services/dashboard.service';
 import { getJob, jobListQuerySchema, listJobs } from '../services/jobs.service';
-import { CandidateService, ChannelService, ClipService, PublishService, YouTubeAccountService, LiveSessionService, SettingsService } from '@shorts/core';
-import { MockYouTubeProvider, YouTubeOAuthClient, createMetadataGenerator, createObjectStorage } from '@shorts/integrations';
+import { toClipDTO } from '@shorts/core';
+import { CandidateService, ChannelService, ClipService, InstagramAccountService, InstagramPublishService, PublishService, SessionImportService, YouTubeAccountService, LiveSessionService, SettingsService } from '@shorts/core';
+import { InstagramGraphClient, YouTubeOAuthClient, createMetadataGenerator, createObjectStorage } from '@shorts/integrations';
 import { createPublishRoutes, createYouTubeCallbackRoute, createYouTubeRoutes } from './youtube';
 import { createClipRoutes, createHighlightRoutes, createSessionAnalysisRoutes } from './highlights';
 import { getReadiness, getSystemStatus } from '../services/system.service';
-import { createMockYouTubeRoutes } from './dev';
 import { createSessionRoutes } from './sessions';
 import { createStreamerRoutes } from './streamers';
 
@@ -36,10 +37,19 @@ export function createV1Router(deps: AppDeps): Router {
     oauth: yt.clientId && yt.clientSecret ? new YouTubeOAuthClient({ clientId: yt.clientId, clientSecret: yt.clientSecret, redirectUri: yt.redirectUri }) : null,
     redis: deps.redis,
     encryptionKey: deps.config.encryptionKey,
-    uploaderName: yt.uploadProvider,
     logger: deps.logger,
   });
-  const publish = new PublishService({ settings, queues: deps.queues, account, metadata: createMetadataGenerator(deps.config), logger: deps.logger });
+  const igClient = deps.instagram ?? new InstagramGraphClient();
+  const igAccount = new InstagramAccountService({ client: igClient, encryptionKey: deps.config.encryptionKey, logger: deps.logger });
+  const instagram = new InstagramPublishService({ settings, storage, queues: deps.queues, account: igAccount, client: igClient, workDir: deps.config.worker.storageDir, logger: deps.logger });
+  const publish = new PublishService({
+    settings,
+    queues: deps.queues,
+    account,
+    metadata: deps.metadata ?? createMetadataGenerator(deps.config),
+    logger: deps.logger,
+    afterApprove: (id) => instagram.queueWithYouTube(id),
+  });
   const clipService = new ClipService(storage);
   const authenticated = requireAuth(auth);
   const adminOnly = requireRole(UserRole.ADMIN);
@@ -127,6 +137,22 @@ export function createV1Router(deps: AppDeps): Router {
   });
 
   router.use('/streamers', createStreamerRoutes(channels, adminOnly));
+  const importer = new SessionImportService({ provider: deps.youtube.provider, sessions, logger: deps.logger });
+  router.post('/live-sessions/import', adminOnly, async (req, res) => {
+    const { url } = parseOrThrow(sessionImportSchema, req.body);
+    const result = await importer.importVideo(url);
+    await recordAudit(req, { action: 'session.import', entityType: 'LiveSession', entityId: result.session.id, metadata: { url, created: result.created } });
+    res.status(result.created ? 201 : 200).json(result);
+  });
+  /** Set the facecam box by hand (or `null` to detect again on the next render). */
+  router.put('/live-sessions/:id/facecam', adminOnly, async (req, res) => {
+    const id = String(req.params.id);
+    const { box } = parseOrThrow(facecamUpdateSchema, req.body);
+    await sessions.get(id);
+    await LiveSessionModel.updateOne({ _id: id }, { $set: { facecam: box ? { ...box, source: 'manual', detectedAt: new Date() } : null } });
+    await recordAudit(req, { action: 'session.facecam', entityType: 'LiveSession', entityId: id, metadata: { box } });
+    res.json(await sessions.get(id));
+  });
   router.use('/live-sessions', createSessionAnalysisRoutes(sessions, candidates, storage));
   router.use('/highlights', createHighlightRoutes(candidates, adminOnly));
   const clipRoutes = createClipRoutes(clipService, storage, deps.queues, sessions, adminOnly);
@@ -134,10 +160,26 @@ export function createV1Router(deps: AppDeps): Router {
   router.use('/clips', clipRoutes.clipRouter);
   router.use('/clips', createPublishRoutes(publish, clipService, adminOnly));
   router.use('/integrations/youtube', createYouTubeRoutes(account, adminOnly));
+
+  router.put('/integrations/instagram', adminOnly, async (req, res) => {
+    const { accessToken } = parseOrThrow(instagramConnectSchema, req.body);
+    const status = await igAccount.connect(accessToken, req.user!.id);
+    await recordAudit(req, { action: 'instagram.connect', entityType: 'IntegrationCredential', metadata: { username: status.username } });
+    res.json(status);
+  });
+  router.delete('/integrations/instagram', adminOnly, async (req, res) => {
+    await igAccount.disconnect();
+    await recordAudit(req, { action: 'instagram.disconnect', entityType: 'IntegrationCredential' });
+    res.status(204).end();
+  });
+  /** Queue (or retry) the Instagram Reel for a rendered clip. */
+  router.post('/clips/:id/instagram', adminOnly, async (req, res) => {
+    const id = String(req.params.id);
+    await instagram.queue(id);
+    await recordAudit(req, { action: 'clip.instagram', entityType: 'GeneratedClip', entityId: id });
+    res.status(202).json(toClipDTO(await clipService.get(id)));
+  });
   router.use('/live-sessions', createSessionRoutes(sessions, settings, deps.config.worker.storageDir, adminOnly));
-  if (deps.youtube.provider instanceof MockYouTubeProvider) {
-    router.use('/dev/mock-youtube', adminOnly, createMockYouTubeRoutes(deps.youtube.provider));
-  }
 
   router.get('/settings', async (_req, res) => {
     res.json(await settings.get());

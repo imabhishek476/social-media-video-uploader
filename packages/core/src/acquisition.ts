@@ -56,7 +56,7 @@ export class AcquisitionService {
       await this.markUnavailable(
         sessionId,
         SourceMediaStatus.UNAVAILABLE,
-        'No recording found for this stream yet. Upload it on the session page or place it in storage/incoming/, then press Reprocess.',
+        `No recording found yet. Upload it on the session page, or put it in the storage inbox as incoming/${session.broadcastId}.mp4; it is picked up automatically within a few minutes.`,
       );
       return 'UNAVAILABLE';
     }
@@ -69,6 +69,7 @@ export class AcquisitionService {
       if (problem) {
         await this.markUnavailable(sessionId, SourceMediaStatus.FAILED, problem);
         if (ref.consume) await fsp.rm(ref.localPath, { force: true }); // don't re-trigger on a rejected file
+        await ref.release?.();
         return 'REJECTED';
       }
       await onProgress?.(30);
@@ -102,14 +103,16 @@ export class AcquisitionService {
           },
         },
       );
-      // Only after the object is stored and recorded is it safe to drop the local copy.
+      // Only after the object is stored and recorded is it safe to drop the local copy and the original.
       if (ref.consume) await fsp.rm(ref.localPath, { force: true });
+      await ref.release?.();
       logger?.info({ liveSessionId: sessionId, key, sizeBytes, durationSeconds: Math.round(info.durationSeconds) }, 'Source media ready');
       return 'READY';
     } catch (err) {
       if (err instanceof MediaProbeError && err.code === 'CORRUPT_MEDIA') {
         await this.markUnavailable(sessionId, SourceMediaStatus.FAILED, err.message);
         if (ref.consume) await fsp.rm(ref.localPath, { force: true });
+        await ref.release?.();
         return 'REJECTED';
       }
       // Transient (network, storage, missing ffprobe): leave the file in place and let the queue retry.

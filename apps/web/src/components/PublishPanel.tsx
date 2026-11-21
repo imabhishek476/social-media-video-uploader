@@ -15,7 +15,7 @@ import OpenInNew from '@mui/icons-material/OpenInNew';
 import Save from '@mui/icons-material/Save';
 import type { GeneratedClipDTO } from '@shorts/shared-types';
 import { describeError } from '../api/client';
-import { useApproveClip, useRegenerateMetadata, useRejectClip, useSettings, useUpdateClipMetadata } from '../api/hooks';
+import { useApproveClip, usePostToInstagram, useRegenerateMetadata, useRejectClip, useSettings, useUpdateClipMetadata } from '../api/hooks';
 import { formatDateTime } from '../lib/format';
 import { StatusChip } from './StatusChip';
 
@@ -40,8 +40,7 @@ export function PublishPanel({ clip, canEdit }: { clip: GeneratedClipDTO; canEdi
   const dirty = draft.title !== clip.title || draft.description !== clip.description || draft.tags !== tagsToText(clip.tags);
   const titleTooLong = draft.title.length > 100;
   const yt = settings.data?.youtube;
-  const mockUploads = yt?.uploadMode === 'mock';
-  const notConnected = yt && !mockUploads && !yt.connected;
+  const notConnected = yt && !yt.connected;
   const privacy = settings.data?.publishing.privacyStatus;
   const error = [save, regen, approve, reject].find((m) => m.isError)?.error;
 
@@ -58,7 +57,7 @@ export function PublishPanel({ clip, canEdit }: { clip: GeneratedClipDTO; canEdi
 
       {clip.uploadStatus === 'PUBLISHED' && clip.youtubeUrl && (
         <Alert severity="success" sx={{ mb: 1.5 }} action={<Button size="small" href={clip.youtubeUrl} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNew />}>Open</Button>}>
-          {mockUploads || clip.youtubeVideoId?.startsWith('mock') ? 'Published (simulated upload — no real video was created).' : `Published ${formatDateTime(clip.publishedAt)}${privacy ? ` as ${privacy}` : ''}.`}
+          {`Published ${formatDateTime(clip.publishedAt)}${privacy ? ` as ${privacy}` : ''}.`}
         </Alert>
       )}
       {clip.uploadStatus === 'QUEUED' && (
@@ -150,6 +149,7 @@ export function PublishPanel({ clip, canEdit }: { clip: GeneratedClipDTO; canEdi
           Save your changes before approving.
         </Typography>
       )}
+      <InstagramRow clip={clip} canEdit={canEdit} />
       {notConnected && (
         <Alert severity="warning" sx={{ mt: 1.5 }}>
           Connect the central YouTube channel in{' '}
@@ -159,14 +159,44 @@ export function PublishPanel({ clip, canEdit }: { clip: GeneratedClipDTO; canEdi
           before uploading.
         </Alert>
       )}
-      {mockUploads && !locked && (
-        <Chip size="small" variant="outlined" label="Uploads are simulated until a YouTube OAuth client is configured" sx={{ mt: 1.5, maxWidth: '100%' }} />
-      )}
       {error && (
         <Alert severity="error" sx={{ mt: 1.5 }}>
           {describeError(error)}
         </Alert>
       )}
+    </Box>
+  );
+}
+
+/** Instagram Reel status and the "Post to Instagram" control. */
+function InstagramRow({ clip, canEdit }: { clip: GeneratedClipDTO; canEdit: boolean }) {
+  const settings = useSettings();
+  const post = usePostToInstagram();
+  const ig = settings.data?.instagram;
+  const st = clip.instagram;
+  if (!ig?.connected && st.status === 'NOT_POSTED') return null;
+  const busy = st.status === 'QUEUED' || st.status === 'POSTING';
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+        <Typography variant="overline" color="text.secondary" sx={{ flexGrow: 1 }}>
+          Instagram Reel{ig?.username ? ` · @${ig.username}` : ''}
+        </Typography>
+        <StatusChip status={st.status} />
+        {st.status === 'PUBLISHED' && st.permalink && (
+          <Button size="small" href={st.permalink} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNew />}>
+            Open
+          </Button>
+        )}
+        {canEdit && ig?.connected && (st.status === 'NOT_POSTED' || st.status === 'FAILED') && (
+          <Button size="small" variant="outlined" disabled={!clip.title || clip.renderStatus !== 'RENDERED' || post.isPending} onClick={() => post.mutate(clip.id)}>
+            {st.status === 'FAILED' ? 'Retry Reel' : 'Post to Instagram'}
+          </Button>
+        )}
+      </Stack>
+      {busy && <Typography variant="caption" color="text.secondary">{st.status === 'POSTING' ? 'Posting to Instagram…' : 'Queued for Instagram…'}{st.lastError ? ` (${st.lastError})` : ''}</Typography>}
+      {st.status === 'FAILED' && st.lastError && <Alert severity="error" sx={{ mt: 1 }}>{st.lastError}</Alert>}
+      {post.isError && <Alert severity="error" sx={{ mt: 1 }}>{describeError(post.error)}</Alert>}
     </Box>
   );
 }

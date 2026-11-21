@@ -20,21 +20,19 @@ import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined';
 import WifiOffOutlined from '@mui/icons-material/WifiOffOutlined';
 import type { StreamerDTO } from '@shorts/shared-types';
 import { describeError } from '../api/client';
-import { useCheckNow, useMockLiveControl, useRemoveStreamer, useSetMonitoring } from '../api/hooks';
+import { useCheckNow, useRemoveStreamer, useSetMonitoring } from '../api/hooks';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface StreamerActionsProps {
   streamer: StreamerDTO;
   canEdit: boolean;
-  /** Show dev controls for the mock YouTube provider. */
-  mockProvider: boolean;
   showView?: boolean;
   onEdit: () => void;
   onRemoved?: () => void;
 }
 
-/** Row/page action menu: view, edit, check now, pause/resume, remove (+ mock controls). */
-export function StreamerActions({ streamer, canEdit, mockProvider, showView = true, onEdit, onRemoved }: StreamerActionsProps) {
+/** Row/page action menu: view, edit, check now, pause/resume, remove. */
+export function StreamerActions({ streamer, canEdit, showView = true, onEdit, onRemoved }: StreamerActionsProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -42,7 +40,6 @@ export function StreamerActions({ streamer, canEdit, mockProvider, showView = tr
   const setMonitoring = useSetMonitoring();
   const checkNow = useCheckNow();
   const remove = useRemoveStreamer();
-  const mock = useMockLiveControl();
 
   const close = () => setAnchor(null);
   const run = (fn: () => Promise<unknown>, success: string) => {
@@ -100,34 +97,6 @@ export function StreamerActions({ streamer, canEdit, mockProvider, showView = tr
             <ListItemText>{streamer.monitoringEnabled ? 'Pause monitoring' : 'Resume monitoring'}</ListItemText>
           </MenuItem>,
         ]}
-        {canEdit &&
-          mockProvider && [
-            <Divider key="d1" />,
-            <ListSubheader key="sub" sx={{ lineHeight: 2.5 }}>
-              Mock YouTube (dev)
-            </ListSubheader>,
-            <MenuItem key="live" onClick={() => run(() => mock.mutateAsync({ channelId: streamer.channelId, action: 'go-live' }), 'Mock broadcast started')}>
-              <ListItemIcon>
-                <SensorsOutlined fontSize="small" />
-              </ListItemIcon>
-              <ListItemText secondary="Detected on the next monitor check">Simulate go live</ListItemText>
-            </MenuItem>,
-            <MenuItem key="end" onClick={() => run(() => mock.mutateAsync({ channelId: streamer.channelId, action: 'end-live', mode: 'clean' }), 'Mock broadcast ended')}>
-              <ListItemIcon>
-                <SensorsOffOutlined fontSize="small" />
-              </ListItemIcon>
-              <ListItemText secondary="YouTube reports an end time">Simulate stream end</ListItemText>
-            </MenuItem>,
-            <MenuItem
-              key="drop"
-              onClick={() => run(() => mock.mutateAsync({ channelId: streamer.channelId, action: 'end-live', mode: 'ambiguous' }), 'Mock broadcast dropped')}
-            >
-              <ListItemIcon>
-                <WifiOffOutlined fontSize="small" />
-              </ListItemIcon>
-              <ListItemText secondary="No end time; needs confirmations">Simulate drop-out</ListItemText>
-            </MenuItem>,
-          ]}
         {canEdit && [
           <Divider key="d2" />,
           <MenuItem key="remove" onClick={() => (close(), setConfirmRemove(true))} sx={{ color: 'error.main' }}>

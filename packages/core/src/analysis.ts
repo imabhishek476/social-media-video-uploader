@@ -4,6 +4,8 @@ import { HighlightCandidateModel, LiveSessionModel, StreamerChannelModel, Transc
 import {
   AiProviderError,
   audioScore,
+  chatScore,
+  chatStats,
   loudnessStats,
   type HighlightAnalyzer,
   type ObjectStorage,
@@ -15,7 +17,8 @@ import type { Logger } from '@shorts/observability';
 import { UnrecoverableError, idempotencyKey, type QueueRegistry } from '@shorts/queue';
 import { CandidateStatus, JobType, ProcessingStage, ProcessingStatus, SessionStatus, SourceMediaStatus } from '@shorts/shared-types';
 import { extractAudioChunks, measureLoudness } from './audio';
-import { blendScore, mergeHighlights, normalizeHighlight } from './highlights';
+import { loadChatCounts } from './chat';
+import { blendSignals, mergeHighlights, normalizeHighlight } from './highlights';
 import { enqueueTracked } from './jobs';
 import type { SettingsService } from './settings';
 
@@ -37,6 +40,8 @@ const ANALYSIS_WINDOW_SECONDS = 30 * 60;
 const ANALYSIS_WINDOW_OVERLAP = 90;
 /** How much the audio signal moves an LLM score. */
 const AUDIO_WEIGHT = 0.15;
+/** How much a live-chat spike moves the score (only when chat was sampled). */
+const CHAT_WEIGHT = 0.2;
 /** Candidates kept for review beyond the auto-selected ones. */
 const MAX_STORED_CANDIDATES = 25;
 
@@ -89,7 +94,13 @@ export class AnalysisService {
         language = out.language || language;
         audioSeconds += chunk.durationSeconds;
         for (const s of out.segments) {
-          segments.push({ ...s, startSeconds: s.startSeconds + chunk.offsetSeconds, endSeconds: Math.min(s.endSeconds, chunk.durationSeconds) + chunk.offsetSeconds });
+          const o = chunk.offsetSeconds;
+          segments.push({
+            ...s,
+            startSeconds: s.startSeconds + o,
+            endSeconds: Math.min(s.endSeconds, chunk.durationSeconds) + o,
+            ...(s.words ? { words: s.words.map((w) => ({ word: w.word, startSeconds: w.startSeconds + o, endSeconds: w.endSeconds + o })) } : {}),
+          });
         }
         await onProgress?.(25 + Math.round(((i + 1) / chunks.length) * 70));
       }
@@ -160,6 +171,8 @@ export class AnalysisService {
     const sourceSeconds = session.sourceMedia?.durationSeconds ?? transcript.durationSeconds ?? loudness.length;
     const bounds = { minSeconds: clips.minDurationSeconds, maxSeconds: clips.maxDurationSeconds, sourceSeconds };
     const stats = loudnessStats(loudness);
+    const chat = await loadChatCounts(sessionId);
+    const cStats = chatStats(chat);
 
     const raw: RawHighlight[] = [];
     let costUsd = 0;
@@ -178,6 +191,7 @@ export class AnalysisService {
           windowEndSeconds: to,
           segments: segments.filter((s) => s.endSeconds > from && s.startSeconds < to),
           loudness,
+          chat,
           clip: { minSeconds: clips.minDurationSeconds, maxSeconds: clips.maxDurationSeconds, targetSeconds: clips.defaultDurationSeconds },
           maxCandidates: Math.max(3, clips.maxClipsPerStream),
         });
@@ -197,7 +211,9 @@ export class AnalysisService {
       .filter((h): h is RawHighlight => h !== null)
       .map((h) => {
         const audio = audioScore(loudness, h.startSeconds, h.endSeconds, stats);
-        return { ...h, breakdown: { ...h.breakdown, audio }, score: heuristic ? h.score : blendScore(h.score, audio, AUDIO_WEIGHT) };
+        const chatPts = chat.length ? chatScore(chat, h.startSeconds, h.endSeconds, cStats) : null;
+        const score = blendSignals(h.score, { audio, audioWeight: heuristic ? 0 : AUDIO_WEIGHT, chat: chatPts, chatWeight: CHAT_WEIGHT });
+        return { ...h, breakdown: { ...h.breakdown, audio, ...(chatPts === null ? {} : { chat: chatPts }) }, score };
       });
 
     // Keep clips a person picked or edited in Clip Studio; replace everything the AI chose before.
@@ -304,7 +320,13 @@ export async function loadTranscriptSegments(sessionId: string, from = 0, to = N
   return chunks
     .flatMap((c) => c.segments)
     .filter((s) => s.endSeconds > from && s.startSeconds < to)
-    .map((s) => ({ startSeconds: s.startSeconds, endSeconds: s.endSeconds, text: s.text, confidence: s.confidence ?? null }));
+    .map((s) => ({
+      startSeconds: s.startSeconds,
+      endSeconds: s.endSeconds,
+      text: s.text,
+      confidence: s.confidence ?? null,
+      ...(s.words?.length ? { words: s.words.map((w) => ({ word: w.word ?? '', startSeconds: w.startSeconds ?? 0, endSeconds: w.endSeconds ?? 0 })) } : {}),
+    }));
 }
 
 export async function enqueueRender(queues: QueueRegistry, sessionId: string, reason: string | number, force = false) {

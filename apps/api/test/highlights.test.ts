@@ -147,3 +147,19 @@ describe('Rendered Shorts endpoints', () => {
     await viewer.get(`/api/v1/clips/${rendered.id}/media`).expect(200);
   });
 });
+
+describe('facecam box', () => {
+  it('sets a manual box, validates it, and clears it for re-detection', async () => {
+    const { id } = await analysedSession();
+    const admin = request.agent(app);
+    await admin.post('/api/v1/auth/login').send(ADMIN).expect(200);
+    const set = await admin.put(`/api/v1/live-sessions/${id}/facecam`).send({ box: { x: 0.7, y: 0.65, w: 0.28, h: 0.3 } }).expect(200);
+    expect(set.body.facecam).toEqual({ x: 0.7, y: 0.65, w: 0.28, h: 0.3, source: 'manual' });
+    await admin.put(`/api/v1/live-sessions/${id}/facecam`).send({ box: { x: 0.9, y: 0.9, w: 0.5, h: 0.5 } }).expect(400);
+    const cleared = await admin.put(`/api/v1/live-sessions/${id}/facecam`).send({ box: null }).expect(200);
+    expect(cleared.body.facecam).toBeNull();
+    const viewer = request.agent(app);
+    await viewer.post('/api/v1/auth/login').send(VIEWER).expect(200);
+    await viewer.put(`/api/v1/live-sessions/${id}/facecam`).send({ box: null }).expect(403);
+  });
+});

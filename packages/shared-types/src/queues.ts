@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
   [JobType.CLIP_RENDER]: 'clip-render',
   [JobType.METADATA_GENERATION]: 'metadata-generation',
   [JobType.YOUTUBE_UPLOAD]: 'youtube-upload',
+  [JobType.INSTAGRAM_UPLOAD]: 'instagram-upload',
   [JobType.CLEANUP]: 'cleanup',
 } as const satisfies Record<JobType, string>;
 

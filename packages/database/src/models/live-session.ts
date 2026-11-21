@@ -39,6 +39,14 @@ const liveSessionSchema = new Schema(
     /** Current step while PROCESSING (TRANSCRIBING / ANALYZING). */
     processingStage: { type: String, default: null },
     highlightCount: { type: Number, default: 0 },
+    /** Webcam overlay position (0–1 of the frame) for the facecam + gameplay layout. */
+    facecam: {
+      type: new Schema(
+        { x: Number, y: Number, w: Number, h: Number, source: { type: String, enum: ['detected', 'manual', 'none'] }, detectedAt: Date },
+        { _id: false },
+      ),
+      default: null,
+    },
     clipCount: { type: Number, default: 0 },
     estimatedCostUsd: { type: Number, default: 0 },
     /** How the end was established: provider end time, N confirmations, or admin action. */

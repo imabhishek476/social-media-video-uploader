@@ -24,7 +24,9 @@ export class OpenAiCompatibleTranscriptionProvider implements TranscriptionProvi
     form.append('file', new Blob([await fsp.readFile(audioPath)]), path.basename(audioPath));
     form.append('model', this.opts.model);
     form.append('response_format', 'verbose_json');
+    // Word timing drives the caption highlight; segments drive analysis.
     form.append('timestamp_granularities[]', 'segment');
+    form.append('timestamp_granularities[]', 'word');
     if (language) form.append('language', language);
 
     let res: Response;
@@ -48,7 +50,9 @@ export class OpenAiCompatibleTranscriptionProvider implements TranscriptionProvi
     const data = (await res.json()) as {
       language?: string;
       segments?: Array<{ start: number; end: number; text: string; avg_logprob?: number; no_speech_prob?: number }>;
+      words?: Array<{ word: string; start: number; end: number }>;
     };
+    const words = (data.words ?? []).filter((w) => w.word?.trim()).map((w) => ({ word: w.word.trim(), startSeconds: w.start, endSeconds: w.end }));
     const segments = (data.segments ?? [])
       .filter((s) => s.text?.trim() && (s.no_speech_prob ?? 0) < 0.8)
       .map((s) => ({
@@ -56,36 +60,16 @@ export class OpenAiCompatibleTranscriptionProvider implements TranscriptionProvi
         endSeconds: s.end,
         text: s.text.trim(),
         confidence: typeof s.avg_logprob === 'number' ? Math.round(Math.exp(s.avg_logprob) * 1000) / 1000 : null,
+        ...(words.length ? { words: wordsWithin(words, s.start, s.end) } : {}),
       }));
     return { language: data.language ?? language ?? 'en', segments };
   }
 }
 
-const MOCK_LINES = [
-  'okay chat let us go, this is the plan',
-  'wait wait wait, what is happening right now',
-  'no way! that was insane, did you see that?',
-  'alright, let me explain what we are doing here',
-  'thank you so much for the subs everyone',
-  'oh my god, we actually did it, let us go!',
-  'this is so funny, I cannot stop laughing',
-  'okay focus, focus, this is the important part',
-];
-
-/**
- * Offline stand-in for development and tests: deterministic placeholder text
- * every 6 seconds. Highlight quality with it comes from the audio signal only.
- */
-export class MockTranscriptionProvider implements TranscriptionProvider {
-  readonly name = 'mock';
-  readonly maxFileBytes = Number.MAX_SAFE_INTEGER;
-  readonly costPerMinuteUsd = 0;
-
-  async transcribe(_audioPath: string, { language, durationSeconds }: { language?: string; durationSeconds: number }): Promise<TranscriptionOutput> {
-    const segments = [];
-    for (let t = 0, i = 0; t < durationSeconds; t += 6, i++) {
-      segments.push({ startSeconds: t, endSeconds: Math.min(durationSeconds, t + 5.5), text: MOCK_LINES[i % MOCK_LINES.length]!, confidence: null });
-    }
-    return { language: language ?? 'en', segments };
-  }
+/** Words whose midpoint falls inside [start, end). Each word belongs to exactly one segment. */
+export function wordsWithin<W extends { startSeconds: number; endSeconds: number }>(words: W[], start: number, end: number): W[] {
+  return words.filter((w) => {
+    const mid = (w.startSeconds + w.endSeconds) / 2;
+    return mid >= start && mid < end;
+  });
 }

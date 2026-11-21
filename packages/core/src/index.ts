@@ -17,3 +17,6 @@ export * from './clips';
 export * from './publishing';
 export * from './scheduling';
 export * from './maintenance';
+export * from './inbox';
+export * from './chat';
+export * from './instagram';

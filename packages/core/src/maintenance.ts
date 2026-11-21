@@ -167,10 +167,10 @@ export async function refreshVideoStats(
   deps: { account: YouTubeAccountService; logger?: Logger; fetchStats?: typeof fetchVideoStats },
   now = new Date(),
 ): Promise<{ updated: number; missing: number }> {
-  if (deps.account.uploadsAreMock || !(await deps.account.isConnected())) return { updated: 0, missing: 0 };
+  if (!(await deps.account.isConnected())) return { updated: 0, missing: 0 };
   const due = await GeneratedClipModel.find({
     uploadStatus: UploadStatus.PUBLISHED,
-    youtubeVideoId: { $ne: null, $not: /^mock/ },
+    youtubeVideoId: { $ne: null },
     publishedAt: { $gte: new Date(now.getTime() - 90 * DAY) },
     $or: [{ stats: null }, { 'stats.fetchedAt': { $lt: new Date(now.getTime() - 5 * 3600_000) } }],
   })

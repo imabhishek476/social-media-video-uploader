@@ -5,15 +5,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { parseConfig } from '@shorts/config';
 import { HighlightCandidateModel, LiveSessionModel, StreamerChannelModel, TranscriptModel, connectDatabase, disconnectDatabase, mongoose, syncIndexes } from '@shorts/database';
-import {
-  AiProviderError,
-  HeuristicHighlightAnalyzer,
-  LocalObjectStorage,
-  MockTranscriptionProvider,
-  buildTranscriptBlock,
-  type HighlightAnalyzer,
-  type RawHighlight,
-} from '@shorts/integrations';
+import { AiProviderError, LocalObjectStorage, buildTranscriptBlock, type HighlightAnalyzer, type RawHighlight } from '@shorts/integrations';
+import { HeuristicHighlightAnalyzer, MockTranscriptionProvider } from '@shorts/integrations/testing';
 import { UnrecoverableError } from '@shorts/queue';
 import { CandidateStatus, ProcessingStatus, SessionStatus, SourceMediaStatus } from '@shorts/shared-types';
 import { AnalysisService, CandidateService, SettingsService, extractAudioChunks, measureLoudness, mergeHighlights, normalizeHighlight } from '../src';

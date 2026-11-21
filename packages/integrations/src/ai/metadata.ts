@@ -176,18 +176,6 @@ export class GeminiMetadataGenerator implements MetadataGenerator {
   }
 }
 
-/** Offline template-based metadata for development and tests. */
-export class TemplateMetadataGenerator implements MetadataGenerator {
-  readonly name = 'template';
-  async generate(req: MetadataRequest) {
-    const title = req.hook || (req.topic ? `${req.streamerName}: ${req.topic}` : `${req.streamerName} stream highlight`);
-    return {
-      ...finalizeMetadata({ title, description: req.reason || `A moment from ${req.streamerName}'s stream.`, hashtags: ['gaming', 'livestream'], tags: [req.topic ?? 'highlight', 'stream highlights'] }, req),
-      costUsd: 0,
-    };
-  }
-}
-
 function parseOrThrow(text: string) {
   try {
     return MetadataOutput.parse(JSON.parse(text));

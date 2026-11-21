@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { LiveSessionModel, StreamerChannelModel, mongoose } from '@shorts/database';
+import { LiveSessionModel, StreamerChannelModel, TranscriptChunkModel, TranscriptModel, mongoose } from '@shorts/database';
 import { ProviderError, videoUrlFor, type VideoDetails, type YouTubeMetadataProvider } from '@shorts/integrations';
 import type { Logger } from '@shorts/observability';
 import { idempotencyKey, type QueueRegistry } from '@shorts/queue';
@@ -25,6 +25,8 @@ export const EndReason = {
   NOT_LIVE_CONFIRMED: 'NOT_LIVE_CONFIRMED',
   UNAVAILABLE_CONFIRMED: 'UNAVAILABLE_CONFIRMED',
   MISSED_LIVE: 'MISSED_LIVE',
+  /** Added by hand from a YouTube URL (or an inbox file named after the video id). */
+  IMPORTED: 'IMPORTED',
 } as const;
 export type EndReason = (typeof EndReason)[keyof typeof EndReason];
 
@@ -206,7 +208,8 @@ export class LiveSessionService {
   }
 
   /** POST /live-sessions/:id/reprocess — safe, explicit re-run (spec §12). */
-  async reprocess(sessionId: string): Promise<LiveSessionDTO> {
+  /** `retranscribe` drops the stored transcript first (e.g. to get word-level timing). */
+  async reprocess(sessionId: string, opts: { retranscribe?: boolean } = {}): Promise<LiveSessionDTO> {
     if (!mongoose.isValidObjectId(sessionId)) throw DomainError.notFound('Live session');
     const session = await LiveSessionModel.findOneAndUpdate(
       {
@@ -224,6 +227,10 @@ export class LiveSessionService {
         throw new DomainError('SESSION_STILL_LIVE', 'The stream is still live; it is processed automatically after it ends', 409);
       }
       throw new DomainError('ALREADY_QUEUED', 'Processing is already queued or running for this session', 409);
+    }
+    if (opts.retranscribe) {
+      const t = await TranscriptModel.findOne({ liveSessionId: sessionId }).select('_id').lean();
+      if (t) await Promise.all([TranscriptChunkModel.deleteMany({ transcriptId: t._id }), TranscriptModel.deleteOne({ _id: t._id })]);
     }
     await this.enqueueProcessing(sessionId, session.reprocessCount);
     return this.get(sessionId);
@@ -308,6 +315,7 @@ export function toSessionDTO(s: any, storedIn?: 'local' | 'gcs'): LiveSessionDTO
     processingStatus: s.processingStatus,
     processingStage: s.processingStage ?? null,
     highlightCount: s.highlightCount ?? 0,
+    facecam: s.facecam?.source ? { x: s.facecam.x ?? 0, y: s.facecam.y ?? 0, w: s.facecam.w ?? 0, h: s.facecam.h ?? 0, source: s.facecam.source } : null,
     clipCount: s.clipCount ?? 0,
     estimatedCostUsd: Math.round((s.estimatedCostUsd ?? 0) * 10000) / 10000,
     reprocessCount: s.reprocessCount ?? 0,

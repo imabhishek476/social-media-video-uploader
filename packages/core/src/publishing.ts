@@ -36,12 +36,8 @@ export class YouTubeAccountService {
   private cached: { token: string; expiresAt: number } | null = null;
 
   constructor(
-    private readonly deps: { oauth: YouTubeOAuthClient | null; redis: Redis; encryptionKey?: string; uploaderName: 'youtube' | 'mock'; logger?: Logger },
+    private readonly deps: { oauth: YouTubeOAuthClient | null; redis: Redis; encryptionKey?: string; logger?: Logger },
   ) {}
-
-  get uploadsAreMock() {
-    return this.deps.uploaderName === 'mock';
-  }
 
   private oauth(): YouTubeOAuthClient {
     if (!this.deps.oauth || !this.deps.encryptionKey) {
@@ -103,7 +99,6 @@ export class YouTubeAccountService {
 
   /** A valid access token, refreshed when needed. */
   async accessToken(): Promise<string> {
-    if (this.uploadsAreMock) return 'mock-token';
     if (this.cached && this.cached.expiresAt > Date.now()) return this.cached.token;
     const oauth = this.oauth();
     const cred = await IntegrationCredentialModel.findOne({ provider: PROVIDER }).select('+encryptedRefreshToken').lean();
@@ -152,6 +147,8 @@ export class PublishService {
       account: YouTubeAccountService;
       metadata: MetadataGenerator;
       logger?: Logger;
+      /** Runs after a clip is approved (e.g. queue the Instagram cross-post). Must not throw. */
+      afterApprove?: (clipId: string) => Promise<unknown>;
     },
   ) {}
 
@@ -236,7 +233,7 @@ export class PublishService {
     if (![UploadStatus.NOT_UPLOADED, UploadStatus.UPLOAD_FAILED].includes(clip.uploadStatus as never)) {
       throw new DomainError('ALREADY_QUEUED', 'This clip is already queued, uploading or published', 409);
     }
-    if (!this.deps.account.uploadsAreMock && !(await this.deps.account.isConnected())) {
+    if (!(await this.deps.account.isConnected())) {
       throw new DomainError('YOUTUBE_NOT_CONNECTED', 'Connect the central YouTube channel in Settings first', 409);
     }
     const key = clip.uploadIdempotencyKey ?? `clip:${clipId}`;
@@ -264,6 +261,7 @@ export class PublishService {
       entityId: clipId,
       data: { clipId },
     });
+    await this.deps.afterApprove?.(clipId);
   }
 
   async reject(clipId: string, userId: string) {

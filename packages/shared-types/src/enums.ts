@@ -94,6 +94,7 @@ export const JobType = {
   CLIP_RENDER: 'CLIP_RENDER',
   METADATA_GENERATION: 'METADATA_GENERATION',
   YOUTUBE_UPLOAD: 'YOUTUBE_UPLOAD',
+  INSTAGRAM_UPLOAD: 'INSTAGRAM_UPLOAD',
   CLEANUP: 'CLEANUP',
 } as const;
 export type JobType = ValueOf<typeof JobType>;
@@ -118,6 +119,8 @@ export const ReframingMode = {
   CENTER_CROP: 'CENTER_CROP',
   /** Whole 16:9 frame centred over a blurred, zoomed copy (keeps all gameplay/HUD visible). */
   BLUR_FIT: 'BLUR_FIT',
+  /** Streamer layout: facecam on top, gameplay below (falls back to BLUR_FIT when no facecam is found). */
+  FACECAM_SPLIT: 'FACECAM_SPLIT',
   FACE_TRACK: 'FACE_TRACK',
   ACTIVE_SPEAKER: 'ACTIVE_SPEAKER',
   CUSTOM_LAYOUT: 'CUSTOM_LAYOUT',

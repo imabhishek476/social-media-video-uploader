@@ -17,6 +17,8 @@ export const appSettingsSchema = z.object({
     intervalSeconds: z.number().int().min(30).max(86_400),
     endConfirmationChecks: z.number().int().min(1).max(10),
     sessionWatchIntervalSeconds: z.number().int().min(15).max(3600),
+    /** Live-chat sampling interval while a stream is live; 0 turns it off. */
+    chatPollSeconds: z.number().int().min(0).max(600).refine((n) => n === 0 || n >= 30, 'Use 0 (off) or at least 30 seconds'),
   }),
   processing: z.object({
     maxConcurrentJobs: z.number().int().min(1).max(32),
@@ -56,6 +58,8 @@ export const appSettingsSchema = z.object({
         return false;
       }
     }, 'Unknown time zone (use an IANA name like Asia/Kolkata)'),
+    /** MANUAL: post to Instagram from Clip Studio only; WITH_YOUTUBE: approving a clip also queues the Reel. */
+    instagramMode: z.enum(['MANUAL', 'WITH_YOUTUBE']),
   }),
   costs: z.object({
     /** Month-to-date AI spend (transcription + LLM) at which processing pauses. 0 = no cap. */
@@ -172,7 +176,18 @@ export const sessionListQuerySchema = paginationQuerySchema.extend({
 });
 export type SessionListQuery = z.infer<typeof sessionListQuerySchema>;
 
-export const mockGoLiveSchema = z.object({ title: z.string().trim().min(1).max(200).optional() }).strict();
+/** Manual facecam box (fractions of the frame), or `null` to detect again on the next render. */
+export const facecamUpdateSchema = z
+  .object({
+    box: z
+      .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0.03).max(1), h: z.number().min(0.03).max(1) })
+      .refine((b) => b.x + b.w <= 1.001 && b.y + b.h <= 1.001, 'Box must stay inside the frame')
+      .nullable(),
+  })
+  .strict();
+
+/** Register a missed broadcast by URL or video id. */
+export const sessionImportSchema = z.object({ url: z.string().trim().min(5).max(500) }).strict();
 
 /** Clip Studio edits to one highlight candidate (spec §16). */
 export const candidateUpdateSchema = z
@@ -205,3 +220,7 @@ export const clipMetadataSchema = z
   .strict()
   .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
 export type ClipMetadataInput = z.infer<typeof clipMetadataSchema>;
+
+/** Paste a long-lived Instagram access token (Instagram API with Instagram Login). */
+export const instagramConnectSchema = z.object({ accessToken: z.string().trim().min(20).max(1000) }).strict();
+export type InstagramConnectInput = z.infer<typeof instagramConnectSchema>;

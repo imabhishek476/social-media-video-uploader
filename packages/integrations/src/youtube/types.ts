@@ -32,7 +32,7 @@ export interface VideoDetails {
 }
 
 export interface YouTubeMetadataProvider {
-  readonly name: 'youtube' | 'mock';
+  readonly name: string;
   resolveChannel(ref: ChannelRef): Promise<ResolvedChannel | null>;
   /** Recent/possibly-live video IDs for a channel (cheap discovery step). */
   listCandidateVideoIds(channelId: string): Promise<string[]>;
@@ -41,6 +41,22 @@ export interface YouTubeMetadataProvider {
    * private are simply absent from the result.
    */
   getVideos(videoIds: string[]): Promise<VideoDetails[]>;
+}
+
+export interface LiveChatPage {
+  /** Publish times of the messages in this page. */
+  messageTimes: Date[];
+  nextPageToken: string | null;
+  /** Minimum wait YouTube asks for before the next request. */
+  pollingIntervalMs: number;
+  /** Chat is over (stream ended, chat disabled or removed). */
+  ended: boolean;
+}
+
+/** Live chat sampling, used as a highlight signal (message rate only; content is not stored). */
+export interface LiveChatProvider {
+  getActiveLiveChatId(videoId: string): Promise<string | null>;
+  listChatMessages(liveChatId: string, pageToken: string | null): Promise<LiveChatPage>;
 }
 
 export type ProviderErrorCode = 'QUOTA_EXCEEDED' | 'RATE_LIMITED' | 'NOT_FOUND' | 'NETWORK' | 'BAD_RESPONSE' | 'CONFIG' | 'PAUSED';

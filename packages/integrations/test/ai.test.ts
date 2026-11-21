@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AiProviderError, ClaudeHighlightAnalyzer, GeminiHighlightAnalyzer, HeuristicHighlightAnalyzer, OpenAiCompatibleTranscriptionProvider, type HighlightRequest } from '../src';
+import { AiProviderError, ClaudeHighlightAnalyzer, GeminiFacecamDetector, GeminiHighlightAnalyzer, plausibleFacecam, OpenAiCompatibleTranscriptionProvider, type HighlightRequest } from '../src';
+import { HeuristicHighlightAnalyzer } from '../testing';
 
 interface Captured {
   url: string;
@@ -186,5 +187,51 @@ describe('GeminiHighlightAnalyzer', () => {
     await expect(a.analyze(request)).rejects.toMatchObject({ code: 'RATE_LIMITED', retryable: true });
     reply = () => ({ status: 403, body: { error: { message: 'denied' } } });
     await expect(a.analyze(request)).rejects.toMatchObject({ code: 'AUTH', retryable: false });
+  });
+});
+
+describe('word timestamps and facecam detection', () => {
+  it('requests word timing and attaches each word to its segment', async () => {
+    const audio = path.join(os.tmpdir(), `stt-words-${Date.now()}.mp3`);
+    await fs.writeFile(audio, 'x');
+    reply = () => ({
+      status: 200,
+      body: {
+        language: 'en',
+        segments: [
+          { start: 0, end: 2, text: 'no way', avg_logprob: -0.1 },
+          { start: 2, end: 4, text: 'lets go', avg_logprob: -0.1 },
+        ],
+        words: [
+          { word: 'no', start: 0.1, end: 0.4 },
+          { word: 'way', start: 0.5, end: 1.2 },
+          { word: 'lets', start: 2.1, end: 2.5 },
+          { word: 'go', start: 2.6, end: 3.0 },
+        ],
+      },
+    });
+    const p = new OpenAiCompatibleTranscriptionProvider({ apiKey: 'k', baseUrl: base, model: 'whisper-large-v3-turbo', costPerMinuteUsd: 0 });
+    const out = await p.transcribe(audio, { durationSeconds: 4 });
+    expect((captured.at(-1)!.body.toString().match(/timestamp_granularities\[\]/g) ?? []).length).toBe(2);
+    expect(out.segments[0]!.words).toEqual([
+      { word: 'no', startSeconds: 0.1, endSeconds: 0.4 },
+      { word: 'way', startSeconds: 0.5, endSeconds: 1.2 },
+    ]);
+    expect(out.segments[1]!.words!.map((w) => w.word)).toEqual(['lets', 'go']);
+  });
+
+  it('converts Gemini 0-1000 boxes and rejects implausible ones', async () => {
+    const jpg = path.join(os.tmpdir(), `frame-${Date.now()}.jpg`);
+    await fs.writeFile(jpg, 'jpeg');
+    const d = new GeminiFacecamDetector({ apiKey: 'k', model: 'm', baseUrl: base });
+    const answer = (o: unknown) => () => ({ status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify(o) }] } }] } });
+    reply = answer({ found: true, box_2d: [700, 750, 1000, 1000] }); // bottom-right webcam
+    expect(await d.detect([jpg, jpg])).toEqual({ x: 0.75, y: 0.7, w: 0.25, h: 0.3 });
+    expect(JSON.parse(captured.at(-1)!.body.toString()).contents[0].parts.filter((p: { inlineData?: unknown }) => p.inlineData)).toHaveLength(2);
+    reply = answer({ found: true, box_2d: [0, 0, 1000, 1000] }); // whole frame = not an overlay
+    expect(await d.detect([jpg])).toBeNull();
+    reply = answer({ found: false });
+    expect(await d.detect([jpg])).toBeNull();
+    expect(plausibleFacecam({ x: 0.7, y: 0.7, w: 0.5, h: 0.5 })).toEqual({ x: 0.7, y: 0.7, w: 0.3, h: 0.3 }); // clamped to the frame
   });
 });

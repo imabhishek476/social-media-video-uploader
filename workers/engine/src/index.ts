@@ -10,6 +10,9 @@ import {
   AcquisitionService,
   AnalysisService,
   LiveMonitorService,
+  ChatSampler,
+  InstagramAccountService,
+  InstagramPublishService,
   LiveSessionService,
   NotificationService,
   PublishService,
@@ -25,6 +28,8 @@ import {
   enqueueMetadata,
   SettingsService,
   createVideoSourceProvider,
+  InboxWatcher,
+  SessionImportService,
   enqueueHighlightAnalysis,
   enqueueRender,
   enqueueTranscription,
@@ -36,13 +41,14 @@ import {
   GoogleYouTubeUploader,
   LogNotifier,
   TelegramNotifier,
-  MockYouTubeUploader,
   YouTubeOAuthClient,
+  createFacecamDetector,
   createHighlightAnalyzer,
   createMetadataGenerator,
   createObjectStorage,
   createTranscriptionProvider,
   createYouTubeIntegration,
+  InstagramGraphClient,
   type ObjectStorage,
   type YouTubeIntegration,
 } from '@shorts/integrations';
@@ -79,6 +85,9 @@ interface Services {
   youtube: YouTubeIntegration;
   sessions: LiveSessionService;
   monitor: LiveMonitorService;
+  chat: ChatSampler;
+  instagram: InstagramPublishService;
+  instagramAccount: InstagramAccountService;
   acquisition: AcquisitionService;
   analysis: AnalysisService;
   render: RenderService;
@@ -86,6 +95,7 @@ interface Services {
   upload: UploadService;
   account: YouTubeAccountService;
   notify: NotificationService;
+  inbox: InboxWatcher;
   storage: ObjectStorage;
 }
 
@@ -158,6 +168,7 @@ const ROLES: Record<string, RoleDefinition> = {
         new Worker(
           queueName,
           tracked<SessionJobData, string>(queueName, workerId, logger, async (data, ctx) => {
+            if (ctx.job.name === 'inbox-pickup') return JSON.stringify(await services.inbox.tick());
             if (!data.liveSessionId) throw new PipelineError('BAD_PAYLOAD', 'Missing liveSessionId', true);
             const outcome = await services.acquisition.acquire(data.liveSessionId, ctx.reportProgress);
             if (outcome === 'READY' || outcome === 'ALREADY_READY') {
@@ -168,7 +179,9 @@ const ROLES: Record<string, RoleDefinition> = {
           { connection, concurrency: config.defaults.maxConcurrentTranscodeJobs, lockDuration: 10 * 60 * 1000 },
         ),
       );
-      logger.info({ queue: queueName, source: config.integrations.videoSource.provider, storage: services.storage.name }, 'Acquisition role started');
+      // Recordings dropped into the inbox start processing within ~2 minutes.
+      await queues.get(queueName).upsertJobScheduler('inbox-pickup', { every: 2 * 60 * 1000 }, { name: 'inbox-pickup', data: {}, opts: TICK_JOB_OPTS });
+      logger.info({ queue: queueName, storage: services.storage.name }, 'Acquisition role started');
     },
   },
   transcription: {
@@ -300,15 +313,50 @@ const ROLES: Record<string, RoleDefinition> = {
           { connection, concurrency: 1, lockDuration: 30 * 60 * 1000 },
         ),
       );
-      logger.info({ queue: queueName, uploader: config.integrations.youtube.uploadProvider }, 'Upload role started');
+      logger.info({ queue: queueName }, 'Upload role started');
+    },
+  },
+  instagram: {
+    queue: QUEUE_NAMES[JobType.INSTAGRAM_UPLOAD],
+    async start({ logger, connection, queues, workerId, workers, services }) {
+      const queueName = QUEUE_NAMES[JobType.INSTAGRAM_UPLOAD];
+      workers.push(
+        new Worker(
+          queueName,
+          async (job, token) => {
+            // Daily: keep the 60-day Instagram token alive.
+            if (job.name === 'refresh-token') return services.instagramAccount.refreshIfNeeded();
+            return tracked<TrackedJobData & { clipId?: string }, unknown>(queueName, workerId, logger, async (data, ctx) => {
+              if (!data.clipId) throw new PipelineError('BAD_PAYLOAD', 'Missing clipId', true);
+              try {
+                const res = await services.instagram.post(data.clipId, { defer: ctx.defer, onProgress: ctx.reportProgress });
+                if (res !== 'SKIPPED' && res.permalink) {
+                  const c = await GeneratedClipModel.findById(data.clipId).select('title').lean();
+                  await services.notify.published(c?.title ?? 'Reel', res.permalink, 'Instagram');
+                }
+                return res;
+              } catch (err) {
+                if (err instanceof DelayedError) throw err;
+                const final = err instanceof UnrecoverableError || ctx.job.attemptsMade + 1 >= (ctx.job.opts.attempts ?? 1);
+                if (final) await services.instagram.markFailed(data.clipId, (err as Error).message).catch(() => undefined);
+                throw err;
+              }
+            })(job, token);
+          },
+          { connection, concurrency: 1, lockDuration: 30 * 60 * 1000 },
+        ),
+      );
+      await queues.get(queueName).upsertJobScheduler('instagram-token-refresh', { every: 24 * 60 * 60 * 1000 }, { name: 'refresh-token', data: {}, opts: TICK_JOB_OPTS });
+      logger.info({ queue: queueName }, 'Instagram role started');
     },
   },
   session: {
     queue: QUEUE_NAMES[JobType.SESSION_WATCH],
     async start({ logger, connection, queues, workers, services }) {
       const queueName = QUEUE_NAMES[JobType.SESSION_WATCH];
-      workers.push(new Worker(queueName, () => services.sessions.watchTick(), { connection, concurrency: 1 }));
+      workers.push(new Worker(queueName, (job) => (job.name === 'chat-tick' ? services.chat.tick() : services.sessions.watchTick()), { connection, concurrency: 1 }));
       await queues.get(queueName).upsertJobScheduler('session-watch-tick', { every: SESSION_TICK_MS }, { name: 'tick', opts: TICK_JOB_OPTS });
+      await queues.get(queueName).upsertJobScheduler('chat-sample-tick', { every: SESSION_TICK_MS }, { name: 'chat-tick', opts: TICK_JOB_OPTS });
       logger.info({ queue: queueName }, 'Session watch role started');
     },
   },
@@ -400,11 +448,18 @@ async function main() {
     dailyQuota: config.integrations.youtube.dailyQuota,
     logger: logger.child({ role: 'monitor' }),
   });
+  const chat = new ChatSampler({
+    chat: youtube.chat!,
+    quota: youtube.quota,
+    settings,
+    dailyQuota: config.integrations.youtube.dailyQuota,
+    logger: logger.child({ role: 'chat' }),
+  });
   const storage = createObjectStorage(config);
   const acquisition = new AcquisitionService({
     settings,
     storage,
-    source: createVideoSourceProvider(config.integrations.videoSource.provider, config.worker.storageDir),
+    source: createVideoSourceProvider(config.worker.storageDir, storage, config.integrations.videoSource.provider, config.integrations.videoSource.ytdlpBinary),
     tempDir: path.join(config.worker.storageDir, 'tmp'),
     logger: logger.child({ role: 'acquisition' }),
   });
@@ -417,21 +472,38 @@ async function main() {
     language: config.integrations.transcription.language,
     logger: logger.child({ role: 'analysis' }),
   });
-  const render = new RenderService({ settings, storage, workDir: path.join(config.worker.storageDir, 'tmp'), logger: logger.child({ role: 'render' }) });
+  const render = new RenderService({ settings, storage, workDir: path.join(config.worker.storageDir, 'tmp'), facecam: createFacecamDetector(config), logger: logger.child({ role: 'render' }) });
   const yt = config.integrations.youtube;
   const account = new YouTubeAccountService({
     oauth: yt.clientId && yt.clientSecret ? new YouTubeOAuthClient({ clientId: yt.clientId, clientSecret: yt.clientSecret, redirectUri: yt.redirectUri }) : null,
     redis: connection,
     encryptionKey: config.encryptionKey,
-    uploaderName: yt.uploadProvider,
     logger: logger.child({ role: 'youtube' }),
   });
-  const publish = new PublishService({ settings, queues, account, metadata: createMetadataGenerator(config), logger: logger.child({ role: 'metadata' }) });
+  const igClient = new InstagramGraphClient();
+  const instagramAccount = new InstagramAccountService({ client: igClient, encryptionKey: config.encryptionKey, logger: logger.child({ role: 'instagram' }) });
+  const instagram = new InstagramPublishService({
+    settings,
+    storage,
+    queues,
+    account: instagramAccount,
+    client: igClient,
+    workDir: path.join(config.worker.storageDir, 'tmp'),
+    logger: logger.child({ role: 'instagram' }),
+  });
+  const publish = new PublishService({
+    settings,
+    queues,
+    account,
+    metadata: createMetadataGenerator(config),
+    logger: logger.child({ role: 'metadata' }),
+    afterApprove: (id) => instagram.queueWithYouTube(id),
+  });
   const upload = new UploadService({
     settings,
     storage,
     account,
-    uploader: yt.uploadProvider === 'youtube' ? new GoogleYouTubeUploader() : new MockYouTubeUploader(),
+    uploader: new GoogleYouTubeUploader(),
     workDir: path.join(config.worker.storageDir, 'tmp'),
     logger: logger.child({ role: 'upload' }),
   });
@@ -445,7 +517,14 @@ async function main() {
     redis: connection,
     logger: logger.child({ role: 'notify' }),
   });
-  const services: Services = { settings, youtube, sessions, monitor, acquisition, analysis, render, publish, upload, account, notify, storage };
+  const inbox = new InboxWatcher({
+    storage,
+    storageDir: config.worker.storageDir,
+    sessions,
+    importer: new SessionImportService({ provider: youtube.provider, sessions, logger: logger.child({ role: 'inbox' }) }),
+    logger: logger.child({ role: 'inbox' }),
+  });
+  const services: Services = { settings, youtube, sessions, monitor, chat, instagram, instagramAccount, acquisition, analysis, render, publish, upload, account, notify, inbox, storage };
 
   for (const role of roles) {
     await ROLES[role]!.start({ config, logger: logger.child({ role }), connection, queues, workerId, workers, services });

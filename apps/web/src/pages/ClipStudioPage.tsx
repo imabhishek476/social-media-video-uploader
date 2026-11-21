@@ -23,7 +23,8 @@ import Download from '@mui/icons-material/Download';
 import Movie from '@mui/icons-material/Movie';
 import { UserRole, type GeneratedClipDTO, type HighlightCandidateDTO, type TranscriptSegmentDTO } from '@shorts/shared-types';
 import { describeError } from '../api/client';
-import { useClipMedia, useClips, useHighlights, useMe, useRenderSession, useSession, useSessions, useSourcePreview, useTranscript, useUpdateHighlight } from '../api/hooks';
+import { useClipMedia, useClips, useHighlights, useMe, useRenderSession, useSession, useSessions, useSetFacecam, useSettings, useSourcePreview, useTranscript, useUpdateHighlight } from '../api/hooks';
+import { FacecamOverlay } from '../components/FacecamOverlay';
 import { CandidateCard, type RenderState } from '../components/CandidateCard';
 import { PageHeader } from '../components/PageHeader';
 import { PublishPanel } from '../components/PublishPanel';
@@ -60,6 +61,10 @@ export function ClipStudioPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [showFrame, setShowFrame] = useState(true);
+  const [editFacecam, setEditFacecam] = useState(false);
+  const settings = useSettings();
+  const setFacecam = useSetFacecam();
+  const splitLayout = settings.data?.clips.reframingMode === 'FACECAM_SPLIT';
   const [playhead, setPlayhead] = useState(0);
   const video = useRef<HTMLVideoElement>(null);
   const stopAt = useRef<number | null>(null);
@@ -211,8 +216,19 @@ export function ClipStudioPage() {
                 ) : (
                   <Skeleton variant="rectangular" sx={{ height: '100%', bgcolor: 'grey.900' }} />
                 )}
-                {showFrame && preview.data && (
-                  // Where a centre-cropped 9:16 Short would sit (Phase 5 renders it).
+                {splitLayout && preview.data && (
+                  <FacecamOverlay
+                    box={s?.facecam && s.facecam.source !== 'none' ? s.facecam : null}
+                    editing={editFacecam}
+                    onDraw={(box) => {
+                      if (!s) return;
+                      setFacecam.mutate({ id: s.id, box: { x: +box.x.toFixed(4), y: +box.y.toFixed(4), w: +box.w.toFixed(4), h: +box.h.toFixed(4) } });
+                      setEditFacecam(false);
+                    }}
+                  />
+                )}
+                {showFrame && preview.data && !splitLayout && (
+                  // Where a centre-cropped 9:16 Short would sit.
                   <Box
                     sx={{
                       position: 'absolute',
@@ -234,8 +250,41 @@ export function ClipStudioPage() {
                 <Typography variant="body2" sx={{ fontFamily: 'monospace', minWidth: 72 }}>
                   {formatClock(playhead, true)}
                 </Typography>
-                <FormControlLabel control={<Switch size="small" checked={showFrame} onChange={(e) => setShowFrame(e.target.checked)} />} label={<Typography variant="body2">Show Shorts frame</Typography>} />
+                {!splitLayout && (
+                  <FormControlLabel control={<Switch size="small" checked={showFrame} onChange={(e) => setShowFrame(e.target.checked)} />} label={<Typography variant="body2">Show Shorts frame</Typography>} />
+                )}
+                {splitLayout && s && (
+                  <>
+                    <Typography variant="body2" color="text.secondary">
+                      Facecam:{' '}
+                      {s.facecam?.source === 'manual'
+                        ? 'set by hand'
+                        : s.facecam?.source === 'detected'
+                          ? 'detected'
+                          : s.facecam?.source === 'none'
+                            ? 'none found (full-frame layout)'
+                            : 'detected on next render'}
+                    </Typography>
+                    {canEdit && (
+                      <>
+                        <Button size="small" variant={editFacecam ? 'contained' : 'text'} color={editFacecam ? 'warning' : 'primary'} onClick={() => setEditFacecam((v) => !v)}>
+                          {editFacecam ? 'Drag over the webcam… (cancel)' : 'Draw facecam box'}
+                        </Button>
+                        {s.facecam && (
+                          <Button size="small" disabled={setFacecam.isPending} onClick={() => setFacecam.mutate({ id: s.id, box: null })}>
+                            Detect again
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </Stack>
+              {splitLayout && setFacecam.isSuccess && (
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  Facecam updated. Press “Re-render all” to apply it to the Shorts.
+                </Alert>
+              )}
 
               {active ? (
                 <Box sx={{ mt: 1.5 }}>

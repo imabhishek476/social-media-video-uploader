@@ -155,8 +155,6 @@ export interface ProcessingJobDTO {
 }
 
 export interface YouTubeConnectionDTO {
-  /** `mock` = uploads are simulated (no OAuth client configured). */
-  uploadMode: 'youtube' | 'mock';
   /** OAuth client id/secret are configured, so Connect can be used. */
   oauthConfigured: boolean;
   status: 'ACTIVE' | 'REVOKED' | 'ERROR' | null;
@@ -167,8 +165,20 @@ export interface YouTubeConnectionDTO {
   connectedAt: string | null;
 }
 
+export interface InstagramConnectionDTO {
+  connected: boolean;
+  status: 'ACTIVE' | 'REVOKED' | 'ERROR' | null;
+  userId: string | null;
+  username: string | null;
+  tokenExpiresAt: string | null;
+  lastError: string | null;
+}
+
+export type InstagramPostStatus = 'NOT_POSTED' | 'QUEUED' | 'POSTING' | 'PUBLISHED' | 'FAILED';
+
 export interface AppSettingsDTO extends AppSettingsInput {
   youtube: YouTubeConnectionDTO;
+  instagram: InstagramConnectionDTO;
   updatedAt: string | null;
 }
 
@@ -237,6 +247,8 @@ export interface LiveSessionDTO {
   processingStatus: ProcessingStatus;
   processingStage: string | null;
   highlightCount: number;
+  /** Facecam box for the split layout; source `none` = looked and found no webcam. */
+  facecam: { x: number; y: number; w: number; h: number; source: 'detected' | 'manual' | 'none' } | null;
   clipCount: number;
   estimatedCostUsd: number;
   reprocessCount: number;
@@ -246,19 +258,11 @@ export interface LiveSessionDTO {
 }
 
 export interface YouTubeProviderStatusDTO {
-  provider: 'youtube' | 'mock';
+  provider: string;
   liveDetection: 'rss' | 'search';
   quotaUsedToday: number;
   dailyQuota: number;
   pausedUntil: string | null;
-}
-
-/** Dev-only mock YouTube channel state (mock provider). */
-export interface MockChannelDTO {
-  channelId: string;
-  handle: string | null;
-  title: string;
-  live: { videoId: string; title: string; startedAt: string } | null;
 }
 
 export interface HighlightCandidateDTO {
@@ -328,6 +332,7 @@ export interface GeneratedClipDTO {
   youtubeUrl: string | null;
   publishedAt: string | null;
   stats: { views: number; likes: number; comments: number; privacyStatus: string | null; fetchedAt: string } | null;
+  instagram: { status: InstagramPostStatus; permalink: string | null; publishedAt: string | null; lastError: string | null };
   filesExpired: boolean;
   lastError: string | null;
   createdAt: string;

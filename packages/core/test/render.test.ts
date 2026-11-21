@@ -182,3 +182,45 @@ describe('forced re-render', () => {
     expect(await storage.exists(v1.storageKey!)).toBe(false);
   }, 120_000);
 });
+
+describe('exact word captions and facecam split', () => {
+  it('uses provider word timing when available', () => {
+    const words = wordsFromSegments(
+      [{ startSeconds: 10, endSeconds: 14, text: 'no way bro', words: [{ word: 'no', startSeconds: 10.2, endSeconds: 10.4 }, { word: 'way', startSeconds: 11.5, endSeconds: 12 }, { word: 'bro', startSeconds: 13, endSeconds: 13.3 }] }],
+      10,
+      20,
+    );
+    expect(words).toEqual([
+      { text: 'no', start: expect.closeTo(0.2, 5), end: expect.closeTo(0.4, 5) },
+      { text: 'way', start: 1.5, end: 2 },
+      { text: 'bro', start: 3, end: expect.closeTo(3.3, 5) },
+    ]);
+  });
+
+  it('renders facecam on top and gameplay below at 1080x1920', async () => {
+    const out = path.join(root, 'split.mp4');
+    await renderShort({ sourcePath: video, outPath: out, thumbnailPath: path.join(root, 'split.jpg'), captionsPath: null, startSeconds: 1, endSeconds: 4, keyMomentSeconds: null, mode: 'FACECAM_SPLIT', facecam: { x: 0.7, y: 0.7, w: 0.3, h: 0.3 } });
+    expect(await probeMedia(out)).toMatchObject({ width: 1080, height: 1920, hasAudio: true });
+  }, 60_000);
+
+  it('detects the facecam once, stores it, and falls back to the full frame when there is none', async () => {
+    await settings.update({ clips: { reframingMode: 'FACECAM_SPLIT' } }, ADMIN);
+    let calls = 0;
+    const found = { name: 'fake', detect: async (frames: string[]) => (calls++, expect(frames).toHaveLength(3), { x: 0.75, y: 0.7, w: 0.25, h: 0.3 }) };
+    const { id } = await sessionWithClips();
+    await LiveSessionModel.updateOne({ _id: id }, { 'sourceMedia.durationSeconds': 20 });
+    const svc = new RenderService({ settings, storage, workDir: path.join(root, 'work'), facecam: found });
+    expect(await svc.renderSession(id)).toMatchObject({ rendered: 2 });
+    expect((await LiveSessionModel.findById(id).lean())!.facecam).toMatchObject({ x: 0.75, source: 'detected' });
+    expect((await GeneratedClipModel.find({ liveSessionId: id }).lean()).every((c) => c.reframingMode === 'FACECAM_SPLIT')).toBe(true);
+    await svc.renderSession(id, undefined, { force: true });
+    expect(calls).toBe(1); // stored result reused
+
+    const none = { name: 'fake', detect: async () => null };
+    const other = await sessionWithClips();
+    await LiveSessionModel.updateOne({ _id: other.id }, { 'sourceMedia.durationSeconds': 20 });
+    await new RenderService({ settings, storage, workDir: path.join(root, 'work'), facecam: none }).renderSession(other.id);
+    expect((await LiveSessionModel.findById(other.id).lean())!.facecam).toMatchObject({ source: 'none' });
+    expect((await GeneratedClipModel.find({ liveSessionId: other.id }).lean()).every((c) => c.reframingMode === 'BLUR_FIT')).toBe(true);
+  }, 180_000);
+});
