@@ -59,6 +59,8 @@ export class SessionImportService {
       });
     }
 
+    // Importing on purpose brings back a broadcast whose session was deleted earlier.
+    await StreamerChannelModel.updateOne({ _id: channel._id }, { $pull: { ignoredBroadcastIds: video.videoId } });
     const { id, created } = await this.deps.sessions.recordLive(channel, video);
     if (video.liveBroadcastContent !== 'live') {
       await this.deps.sessions.endSession(id, video.actualEndTime ?? new Date(), EndReason.IMPORTED);

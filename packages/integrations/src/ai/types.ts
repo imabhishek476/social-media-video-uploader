@@ -89,6 +89,8 @@ export class AiProviderError extends Error {
     public readonly code: 'AUTH' | 'RATE_LIMITED' | 'UNAVAILABLE' | 'BAD_REQUEST' | 'REFUSED' | 'BAD_RESPONSE',
     message: string,
     public readonly retryable: boolean,
+    /** When the provider says how long to wait (rate limits). */
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'AiProviderError';

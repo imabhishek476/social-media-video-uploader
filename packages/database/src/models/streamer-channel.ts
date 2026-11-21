@@ -24,6 +24,8 @@ const streamerChannelSchema = new Schema(
     displayName: { type: String, required: true, trim: true },
     thumbnailUrl: { type: String, default: null },
     tags: { type: [String], default: [] },
+    /** Broadcasts whose session was deleted: the monitor must not re-create them. */
+    ignoredBroadcastIds: { type: [String], default: [] },
     category: { type: String, default: null },
     monitoringEnabled: { type: Boolean, default: true },
     liveStatus: { type: String, enum: enumValues(LiveStatus), default: LiveStatus.UNKNOWN },

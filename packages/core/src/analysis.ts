@@ -62,7 +62,16 @@ function asQueueError(err: unknown): Error {
 export class AnalysisService {
   constructor(private readonly deps: AnalysisDeps) {}
 
-  async transcribe(sessionId: string, onProgress?: (pct: number) => Promise<void>): Promise<TranscribeOutcome> {
+  /**
+   * Long streams are transcribed in chunks. Finished chunks are saved next to
+   * the work dir, so a rate limit (free tiers allow only a few hours of audio
+   * per hour) pauses the job via `defer` and the next run continues where it stopped.
+   */
+  async transcribe(
+    sessionId: string,
+    onProgress?: (pct: number) => Promise<void>,
+    defer?: (until: Date, reason: string) => Promise<never>,
+  ): Promise<TranscribeOutcome> {
     const { storage, transcription, logger } = this.deps;
     const session = await LiveSessionModel.findById(sessionId).lean();
     if (!session || session.status === SessionStatus.CANCELLED) return 'SKIPPED';
@@ -86,27 +95,61 @@ export class AnalysisService {
       await fsp.rm(local, { force: true }); // the video is no longer needed for this step
       await onProgress?.(25);
 
-      const segments: TranscriptSegment[] = [];
-      let language = this.deps.language ?? 'en';
-      let audioSeconds = 0;
+      // Chunks finished by an earlier (rate-limited) attempt.
+      const partialPath = path.join(this.deps.workDir, `transcript-partial-${sessionId}.json`);
+      type Partial = { chunks: number; done: Record<string, { language: string; segments: TranscriptSegment[] }> };
+      let partial: Partial = { chunks: chunks.length, done: {} };
+      try {
+        const saved = JSON.parse(await fsp.readFile(partialPath, 'utf8')) as Partial;
+        if (saved.chunks === chunks.length) partial = saved;
+      } catch {
+        // none yet
+      }
+
       for (const [i, chunk] of chunks.entries()) {
-        const out = await transcription.transcribe(chunk.path, { language: this.deps.language, durationSeconds: chunk.durationSeconds });
-        language = out.language || language;
-        audioSeconds += chunk.durationSeconds;
-        for (const s of out.segments) {
-          const o = chunk.offsetSeconds;
-          segments.push({
+        if (partial.done[i]) continue;
+        let out;
+        try {
+          out = await transcription.transcribe(chunk.path, { language: this.deps.language, durationSeconds: chunk.durationSeconds });
+        } catch (err) {
+          if (defer && err instanceof AiProviderError && err.code === 'RATE_LIMITED') {
+            await fsp.writeFile(partialPath, JSON.stringify(partial));
+            const waitMs = Math.max(60_000, Math.min(err.retryAfterMs ?? 15 * 60_000, 2 * 60 * 60_000)) + 30_000;
+            const until = new Date(Date.now() + waitMs);
+            const msg = `Transcription paused by the provider's rate limit after ${Object.keys(partial.done).length}/${chunks.length} parts; continuing at ${until.toISOString().slice(11, 16)} UTC.`;
+            await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { lastError: msg } });
+            logger?.info({ liveSessionId: sessionId, done: Object.keys(partial.done).length, total: chunks.length, until }, 'Transcription rate-limited; deferring');
+            return await defer(until, msg);
+          }
+          throw err;
+        }
+        const o = chunk.offsetSeconds;
+        partial.done[i] = {
+          language: out.language,
+          segments: out.segments.map((s) => ({
             ...s,
             startSeconds: s.startSeconds + o,
             endSeconds: Math.min(s.endSeconds, chunk.durationSeconds) + o,
             ...(s.words ? { words: s.words.map((w) => ({ word: w.word, startSeconds: w.startSeconds + o, endSeconds: w.endSeconds + o })) } : {}),
-          });
-        }
-        await onProgress?.(25 + Math.round(((i + 1) / chunks.length) * 70));
+          })),
+        };
+        await fsp.writeFile(partialPath, JSON.stringify(partial));
+        await onProgress?.(25 + Math.round((Object.keys(partial.done).length / chunks.length) * 70));
       }
+
+      const segments: TranscriptSegment[] = [];
+      let language = this.deps.language ?? 'en';
+      for (let i = 0; i < chunks.length; i++) {
+        const c = partial.done[i]!;
+        language = c.language || language;
+        segments.push(...c.segments);
+      }
+      const audioSeconds = chunks.reduce((n, c) => n + c.durationSeconds, 0);
       const costUsd = (audioSeconds / 60) * transcription.costPerMinuteUsd;
       await this.saveTranscript(sessionId, { provider: transcription.name, language, durationSeconds: Math.round(audioSeconds), segments, loudness, costUsd });
       await LiveSessionModel.updateOne({ _id: sessionId }, { $inc: { estimatedCostUsd: costUsd } });
+      await fsp.rm(partialPath, { force: true });
+      await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { lastError: null } });
       logger?.info({ liveSessionId: sessionId, segments: segments.length, audioSeconds: Math.round(audioSeconds), costUsd }, 'Transcript ready');
       return 'TRANSCRIBED';
     } catch (err) {

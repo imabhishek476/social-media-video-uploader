@@ -197,7 +197,7 @@ const ROLES: Record<string, RoleDefinition> = {
             logger,
             sessionStep(services, async (sessionId, data, ctx) => {
               await budgetGate(services, sessionId, ctx);
-              const outcome = await services.analysis.transcribe(sessionId, ctx.reportProgress);
+              const outcome = await services.analysis.transcribe(sessionId, ctx.reportProgress, ctx.defer);
               if (outcome !== 'SKIPPED') await enqueueHighlightAnalysis(queues, sessionId, data.round ?? (await currentRound(sessionId)));
               return outcome;
             }),

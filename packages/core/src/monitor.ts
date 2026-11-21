@@ -130,6 +130,8 @@ export class LiveMonitorService {
     const { sessions } = this.deps;
     let newSessions = 0;
 
+    const ignored = new Set<string>(ch.ignoredBroadcastIds ?? []);
+    videos = videos.filter((v) => !ignored.has(v.videoId));
     const live = videos.filter((v) => v.liveBroadcastContent === 'live' && v.actualStartTime && !v.actualEndTime);
     let current: { id: string; title: string } | null = null;
     for (const v of live) {

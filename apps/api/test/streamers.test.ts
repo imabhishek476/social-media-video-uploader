@@ -125,11 +125,12 @@ describe('streamer management API', () => {
     expect(res.body.youtube).toMatchObject({ provider: 'mock', liveDetection: 'rss', dailyQuota: 10_000 });
   });
 
-  it('removes a streamer (soft delete) but keeps its sessions', async () => {
+  it('deletes a streamer permanently together with its sessions', async () => {
     const admin = await agentFor();
     await admin.delete(`/api/v1/streamers/${streamerId}`).expect(204);
     await admin.get(`/api/v1/streamers/${streamerId}`).expect(404);
     expect((await admin.get('/api/v1/streamers').expect(200)).body.total).toBe(0);
-    expect((await admin.get('/api/v1/live-sessions').expect(200)).body.total).toBe(1);
+    expect((await admin.get('/api/v1/live-sessions').expect(200)).body.total).toBe(0);
+    await admin.delete(`/api/v1/streamers/${streamerId}`).expect(404);
   });
 });

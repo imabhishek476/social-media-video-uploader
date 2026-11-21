@@ -103,21 +103,21 @@ export function StreamerActions({ streamer, canEdit, showView = true, onEdit, on
             <ListItemIcon>
               <DeleteOutline fontSize="small" color="error" />
             </ListItemIcon>
-            <ListItemText>Remove</ListItemText>
+            <ListItemText>Delete</ListItemText>
           </MenuItem>,
         ]}
       </Menu>
 
       <ConfirmDialog
         open={confirmRemove}
-        title={`Remove ${streamer.displayName}?`}
+        title={`Delete ${streamer.displayName} permanently?`}
         body={
           <>
-            Monitoring stops and the channel is hidden. Its past sessions and clips are kept, and adding the channel again restores it.
-            {isLive && <strong> The broadcast in progress will be cancelled and not processed.</strong>}
+            This deletes the channel and <strong>everything from it</strong>: all sessions, recordings, transcripts, highlights and rendered Shorts, including the files in storage. It cannot be undone.
+            {isLive && <strong> The broadcast in progress is stopped and not processed.</strong>} Shorts already published on YouTube or Instagram stay there.
           </>
         }
-        confirmLabel="Remove"
+        confirmLabel="Delete everything"
         danger
         busy={remove.isPending}
         onClose={() => setConfirmRemove(false)}

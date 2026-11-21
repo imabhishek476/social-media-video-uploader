@@ -2,7 +2,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { decryptSecret, encryptSecret } from '@shorts/config';
 import { GeneratedClipModel, IntegrationCredentialModel, mongoose } from '@shorts/database';
-import { InstagramPublishError, reelCaption, type InstagramGraphClient, type ObjectStorage } from '@shorts/integrations';
+import { InstagramPublishError, isFacebookToken, reelCaption, type InstagramGraphClient, type ObjectStorage } from '@shorts/integrations';
 import type { Logger } from '@shorts/observability';
 import { UnrecoverableError, idempotencyKey, type QueueRegistry } from '@shorts/queue';
 import { JobType, RenderStatus, type InstagramConnectionDTO } from '@shorts/shared-types';
@@ -94,6 +94,10 @@ export class InstagramAccountService {
     const c = await IntegrationCredentialModel.findOne({ provider: PROVIDER, status: 'ACTIVE' }).select('+encryptedRefreshToken').lean();
     if (!c) return 'NOT_CONNECTED';
     if (c.tokenExpiresAt && c.tokenExpiresAt.getTime() - now.getTime() > REFRESH_WITHIN_MS) return 'NOT_NEEDED';
+    if (isFacebookToken(decryptSecret(c.encryptedRefreshToken, this.key()))) {
+      if (c.tokenExpiresAt && c.tokenExpiresAt <= now) await this.markError('The Instagram (Facebook Login) token has expired. Paste a new one in Settings.');
+      return 'NOT_NEEDED';
+    }
     try {
       const r = await this.deps.client.refresh(decryptSecret(c.encryptedRefreshToken, this.key()));
       await IntegrationCredentialModel.updateOne({ provider: PROVIDER }, { $set: { encryptedRefreshToken: encryptSecret(r.token, this.key()), tokenExpiresAt: r.expiresAt, lastError: null } });

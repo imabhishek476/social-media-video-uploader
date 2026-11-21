@@ -235,3 +235,13 @@ describe('word timestamps and facecam detection', () => {
     expect(plausibleFacecam({ x: 0.7, y: 0.7, w: 0.5, h: 0.5 })).toEqual({ x: 0.7, y: 0.7, w: 0.3, h: 0.3 }); // clamped to the frame
   });
 });
+
+describe('retryAfterMs', () => {
+  it('reads Retry-After or a Groq-style message', async () => {
+    const { retryAfterMs } = await import('../src');
+    expect(retryAfterMs('30', '')).toBe(30_000);
+    expect(retryAfterMs(null, 'Please try again in 7m26.5s. Need more tokens?')).toBe(446_500);
+    expect(retryAfterMs(null, 'try again in 1h2m')).toBe(3_720_000);
+    expect(retryAfterMs(null, 'nope')).toBeNull();
+  });
+});

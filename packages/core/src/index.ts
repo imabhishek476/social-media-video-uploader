@@ -20,3 +20,4 @@ export * from './maintenance';
 export * from './inbox';
 export * from './chat';
 export * from './instagram';
+export * from './purge';

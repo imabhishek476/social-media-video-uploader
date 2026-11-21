@@ -8,7 +8,7 @@ export * from './types';
 export * from './signals';
 export { ClaudeHighlightAnalyzer, buildTranscriptBlock, buildHighlightPrompt } from './highlights';
 export { GeminiHighlightAnalyzer } from './gemini';
-export { OpenAiCompatibleTranscriptionProvider } from './transcription';
+export { OpenAiCompatibleTranscriptionProvider, retryAfterMs, wordsWithin } from './transcription';
 
 export function createTranscriptionProvider(config: AppConfig): TranscriptionProvider {
   const t = config.integrations.transcription;

@@ -25,8 +25,12 @@ export class InstagramPublishError extends Error {
 
 export type ContainerStatus = 'IN_PROGRESS' | 'FINISHED' | 'ERROR' | 'EXPIRED' | 'PUBLISHED';
 
+/** Facebook Login tokens (EAA…) use graph.facebook.com; Instagram Login tokens (IG…) use graph.instagram.com. */
+export const isFacebookToken = (token: string) => token.startsWith('EAA');
+
 export interface InstagramClientOptions {
   apiBase?: string;
+  fbApiBase?: string;
   uploadBase?: string;
   version?: string;
   fetchFn?: typeof fetch;
@@ -55,25 +59,45 @@ export function reelCaption(title: string, description: string, tags: string[]):
 export class InstagramGraphClient {
   readonly name = 'instagram';
   private readonly apiBase: string;
+  private readonly fbApiBase: string;
   private readonly uploadBase: string;
   private readonly version: string;
   private readonly fetchFn: typeof fetch;
 
   constructor(opts: InstagramClientOptions = {}) {
     this.apiBase = (opts.apiBase ?? 'https://graph.instagram.com').replace(/\/$/, '');
+    this.fbApiBase = (opts.fbApiBase ?? 'https://graph.facebook.com').replace(/\/$/, '');
     this.uploadBase = (opts.uploadBase ?? 'https://rupload.facebook.com').replace(/\/$/, '');
     this.version = opts.version ?? 'v23.0';
     this.fetchFn = opts.fetchFn ?? fetch;
   }
 
-  /** The account a token belongs to. */
+  /** The account a token belongs to (Instagram Login token, or Facebook Login token via the linked Page). */
   async me(token: string): Promise<{ userId: string; username: string; accountType: string | null }> {
+    if (isFacebookToken(token)) {
+      const pages = await this.call<{ data?: Array<{ name?: string; instagram_business_account?: { id: string; username?: string } }> }>('GET', '/me/accounts', token, {
+        fields: 'name,instagram_business_account{id,username}',
+      });
+      const ig = (pages.data ?? []).map((p) => p.instagram_business_account).find(Boolean);
+      if (!ig) {
+        throw new InstagramPublishError(
+          'BAD_REQUEST',
+          (pages.data ?? []).length
+            ? 'None of your Facebook Pages has an Instagram Business/Creator account linked. Link it in Instagram → Settings → Account type and tools / Facebook Page.'
+            : 'This Facebook token sees no Facebook Pages. Regenerate it with pages_show_list and pages_read_engagement (plus business_management if the Page is in a Business portfolio), and make sure your Instagram account is linked to a Facebook Page.',
+          false,
+        );
+      }
+      return { userId: ig.id, username: ig.username ?? '', accountType: 'BUSINESS' };
+    }
     const r = await this.call<{ user_id?: string; id?: string; username?: string; account_type?: string }>('GET', `/me`, token, { fields: 'user_id,username,account_type' });
     return { userId: String(r.user_id ?? r.id ?? ''), username: r.username ?? '', accountType: r.account_type ?? null };
   }
 
   /** Extend a long-lived token (valid 60 days; refreshable once it is at least a day old). */
   async refresh(token: string): Promise<{ token: string; expiresAt: Date }> {
+    // Facebook Login tokens can't be extended without the app secret; reconnect before they expire.
+    if (isFacebookToken(token)) throw new InstagramPublishError('AUTH', 'Facebook Login tokens cannot be renewed automatically. Paste a new token in Settings before it expires.', false);
     const r = await this.call<{ access_token: string; expires_in?: number }>('GET', '/refresh_access_token', token, { grant_type: 'ig_refresh_token' }, false);
     return { token: r.access_token, expiresAt: new Date(Date.now() + (r.expires_in ?? 60 * 86_400) * 1000) };
   }
@@ -116,7 +140,8 @@ export class InstagramGraphClient {
   }
 
   private async call<T>(method: 'GET' | 'POST', path: string, token: string, params: Record<string, string>, versioned = true): Promise<T> {
-    const url = `${this.apiBase}${versioned ? `/${this.version}` : ''}${path}`;
+    const base = isFacebookToken(token) ? this.fbApiBase : this.apiBase;
+    const url = `${base}${versioned ? `/${this.version}` : ''}${path}`;
     const qs = new URLSearchParams({ ...params, access_token: token });
     let res: Response;
     try {

@@ -14,7 +14,9 @@ import Replay from '@mui/icons-material/Replay';
 import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { describeError } from '../api/client';
-import { useReprocessSession, useSession, useUploadSource } from '../api/hooks';
+import { useDeleteSession, useReprocessSession, useSession, useUploadSource } from '../api/hooks';
+import { ConfirmDialog } from './ConfirmDialog';
+import DeleteOutline from '@mui/icons-material/DeleteOutline';
 import { formatBytes, formatDateTime, formatDuration, formatUsd, humanize } from '../lib/format';
 import ContentCut from '@mui/icons-material/ContentCut';
 import { useRef, useState } from 'react';
@@ -208,9 +210,38 @@ export function SessionDrawer({ sessionId, canEdit, onClose }: { sessionId: stri
                 )}
               </>
             )}
+            {canEdit && <DeleteSessionButton id={s.id} title={s.title} onDeleted={onClose} />}
           </>
         )}
       </Box>
     </Drawer>
+  );
+}
+
+function DeleteSessionButton({ id, title, onDeleted }: { id: string; title: string; onDeleted: () => void }) {
+  const del = useDeleteSession();
+  const [open, setOpen] = useState(false);
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Divider sx={{ mb: 1.5 }} />
+      <Button color="error" size="small" startIcon={<DeleteOutline />} onClick={() => setOpen(true)}>
+        Delete session
+      </Button>
+      {del.isError && <Alert severity="error" sx={{ mt: 1 }}>{describeError(del.error)}</Alert>}
+      <ConfirmDialog
+        open={open}
+        title="Delete this session permanently?"
+        body={
+          <>
+            <strong>{title || 'This session'}</strong> and everything from it are deleted: recording, transcript, highlights and rendered Shorts, including files in storage. Any download or processing stops. It cannot be undone, and the monitor won't add this stream again (Add missed live can). Shorts already published stay on YouTube/Instagram.
+          </>
+        }
+        confirmLabel="Delete session"
+        danger
+        busy={del.isPending}
+        onClose={() => setOpen(false)}
+        onConfirm={() => del.mutate(id, { onSuccess: () => (setOpen(false), onDeleted()), onError: () => setOpen(false) })}
+      />
+    </Box>
   );
 }

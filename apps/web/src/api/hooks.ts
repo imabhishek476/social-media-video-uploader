@@ -394,3 +394,12 @@ export function useDisconnectInstagram() {
 }
 
 export const usePostToInstagram = () => useClipMutation((id: string) => api<GeneratedClipDTO>(`/clips/${id}/instagram`, { method: 'POST', body: {} }));
+
+/** Permanently delete a session with its recording, transcript, highlights and Shorts. */
+export function useDeleteSession() {
+  const invalidate = useInvalidateLive();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/live-sessions/${id}`, { method: 'DELETE' }),
+    onSuccess: invalidate,
+  });
+}

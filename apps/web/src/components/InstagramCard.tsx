@@ -46,7 +46,7 @@ export function InstagramCard({ ig, canEdit }: { ig: InstagramConnectionDTO | un
                 label="Instagram access token"
                 value={token}
                 autoComplete="off"
-                helperText="Long-lived token from your Meta app (Instagram API with Instagram Login, permissions instagram_business_basic + instagram_business_content_publish). Stored encrypted."
+                helperText="Instagram Login token (IG…: instagram_business_basic + instagram_business_content_publish) or Facebook Login token (EAA…: instagram_basic, instagram_content_publish, pages_show_list, pages_read_engagement). Stored encrypted."
                 onChange={(e) => setToken(e.target.value)}
               />
               <Stack direction="row" spacing={1}>

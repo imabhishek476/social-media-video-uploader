@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { UserRole, facecamUpdateSchema, instagramConnectSchema, loginSchema, sessionImportSchema, settingsUpdateSchema, type HealthDTO } from '@shorts/shared-types';
@@ -10,8 +11,9 @@ import { AuthService, SESSION_COOKIE } from '../services/auth.service';
 import { getDashboardSummary } from '../services/dashboard.service';
 import { getJob, jobListQuerySchema, listJobs } from '../services/jobs.service';
 import { toClipDTO } from '@shorts/core';
+import { StreamerPurgeService } from '@shorts/core';
 import { CandidateService, ChannelService, ClipService, InstagramAccountService, InstagramPublishService, PublishService, SessionImportService, YouTubeAccountService, LiveSessionService, SettingsService } from '@shorts/core';
-import { InstagramGraphClient, YouTubeOAuthClient, createMetadataGenerator, createObjectStorage } from '@shorts/integrations';
+import { GcsObjectStorage, InstagramGraphClient, YouTubeOAuthClient, createMetadataGenerator, createObjectStorage } from '@shorts/integrations';
 import { createPublishRoutes, createYouTubeCallbackRoute, createYouTubeRoutes } from './youtube';
 import { createClipRoutes, createHighlightRoutes, createSessionAnalysisRoutes } from './highlights';
 import { getReadiness, getSystemStatus } from '../services/system.service';
@@ -51,6 +53,11 @@ export function createV1Router(deps: AppDeps): Router {
     afterApprove: (id) => instagram.queueWithYouTube(id),
   });
   const clipService = new ClipService(storage);
+  // Files may sit in the current storage and, after a switch, in Cloud Storage too.
+  const st = deps.config.integrations.storage;
+  const purgeStorages = [storage, ...(st.provider === 'local' && st.bucket ? [new GcsObjectStorage({ bucket: st.bucket, projectId: st.projectId, keyFile: st.keyFile })] : [])];
+  const purge = new StreamerPurgeService({ storages: purgeStorages, queues: deps.queues, tempDir: path.join(deps.config.worker.storageDir, 'tmp'), logger: deps.logger });
+
   const authenticated = requireAuth(auth);
   const adminOnly = requireRole(UserRole.ADMIN);
 
@@ -136,7 +143,7 @@ export function createV1Router(deps: AppDeps): Router {
     res.json(await getJob(req.params.id));
   });
 
-  router.use('/streamers', createStreamerRoutes(channels, adminOnly));
+  router.use('/streamers', createStreamerRoutes(channels, adminOnly, purge));
   const importer = new SessionImportService({ provider: deps.youtube.provider, sessions, logger: deps.logger });
   router.post('/live-sessions/import', adminOnly, async (req, res) => {
     const { url } = parseOrThrow(sessionImportSchema, req.body);
@@ -178,6 +185,12 @@ export function createV1Router(deps: AppDeps): Router {
     await instagram.queue(id);
     await recordAudit(req, { action: 'clip.instagram', entityType: 'GeneratedClip', entityId: id });
     res.status(202).json(toClipDTO(await clipService.get(id)));
+  });
+  router.delete('/live-sessions/:id', adminOnly, async (req, res) => {
+    const id = String(req.params.id);
+    const summary = await purge.purgeSession(id);
+    await recordAudit(req, { action: 'session.delete', entityType: 'LiveSession', entityId: id, metadata: { ...summary } });
+    res.status(204).end();
   });
   router.use('/live-sessions', createSessionRoutes(sessions, settings, deps.config.worker.storageDir, adminOnly));
 

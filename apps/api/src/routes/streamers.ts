@@ -1,11 +1,11 @@
 import { Router, type RequestHandler } from 'express';
-import type { ChannelService } from '@shorts/core';
+import type { ChannelService, StreamerPurgeService } from '@shorts/core';
 import { createStreamerSchema, monitoringToggleSchema, streamerListQuerySchema, updateStreamerSchema } from '@shorts/shared-types';
 import { parseOrThrow } from '../errors';
 import { recordAudit } from '../services/audit.service';
 
 /** /api/v1/streamers (spec §12). Reads: any signed-in user. Writes: admins. */
-export function createStreamerRoutes(channels: ChannelService, adminOnly: RequestHandler): Router {
+export function createStreamerRoutes(channels: ChannelService, adminOnly: RequestHandler, purge: StreamerPurgeService): Router {
   const router = Router();
 
   router.get('/', async (req, res) => {
@@ -47,8 +47,9 @@ export function createStreamerRoutes(channels: ChannelService, adminOnly: Reques
   });
 
   router.delete('/:id', adminOnly, async (req, res) => {
-    await channels.remove(String(req.params.id));
-    await recordAudit(req, { action: 'streamer.remove', entityType: 'StreamerChannel', entityId: String(req.params.id) });
+    // Permanent: the streamer, its sessions, clips, transcripts and stored files.
+    const summary = await purge.purge(String(req.params.id));
+    await recordAudit(req, { action: 'streamer.delete', entityType: 'StreamerChannel', entityId: String(req.params.id), metadata: { ...summary } });
     res.status(204).end();
   });
 

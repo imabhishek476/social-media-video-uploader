@@ -43,7 +43,10 @@ export class OpenAiCompatibleTranscriptionProvider implements TranscriptionProvi
     if (!res.ok) {
       const body = (await res.text().catch(() => '')).slice(0, 300);
       if (res.status === 401 || res.status === 403) throw new AiProviderError('AUTH', `Transcription API rejected the key (${res.status}). Check TRANSCRIPTION_API_KEY.`, false);
-      if (res.status === 429) throw new AiProviderError('RATE_LIMITED', 'Transcription API rate limit reached', true);
+      if (res.status === 429) {
+        const wait = retryAfterMs(res.headers.get('retry-after'), body);
+        throw new AiProviderError('RATE_LIMITED', `Transcription API rate limit reached${wait ? ` (try again in ${Math.ceil(wait / 60_000)} min)` : ''}`, true, wait ?? undefined);
+      }
       if (res.status >= 500) throw new AiProviderError('UNAVAILABLE', `Transcription API error ${res.status}`, true);
       throw new AiProviderError('BAD_REQUEST', `Transcription API error ${res.status}: ${body}`, false);
     }
@@ -64,6 +67,18 @@ export class OpenAiCompatibleTranscriptionProvider implements TranscriptionProvi
       }));
     return { language: data.language ?? language ?? 'en', segments };
   }
+}
+
+/**
+ * How long a 429 asks us to wait: the Retry-After header (seconds), or a
+ * message like "Please try again in 7m26.5s" (Groq).
+ */
+export function retryAfterMs(header: string | null, body: string): number | null {
+  const h = Number(header);
+  if (header && Number.isFinite(h) && h > 0) return Math.ceil(h * 1000);
+  const m = body.match(/try again in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:([\d.]+)s)?/i);
+  if (!m || !(m[1] || m[2] || m[3])) return null;
+  return Math.ceil(((Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60 + Number(m[3] ?? 0)) * 1000);
 }
 
 /** Words whose midpoint falls inside [start, end). Each word belongs to exactly one segment. */

@@ -54,3 +54,20 @@ describe('InstagramGraphClient', () => {
     expect(reelCaption('x'.repeat(3000), '', []).length).toBe(2200);
   });
 });
+
+describe('Facebook Login tokens', () => {
+  it('finds the Instagram account through the linked Page and uses graph.facebook.com', async () => {
+    const { fn, calls } = fakeFetch([
+      { body: { data: [{ name: 'Page', instagram_business_account: { id: '1789', username: 'creator' } }] } },
+      { body: { data: [] } },
+      { body: { id: 'C1' } },
+    ]);
+    const c = new InstagramGraphClient({ fetchFn: fn, version: 'v99.0' });
+    expect(await c.me('EAAtoken')).toEqual({ userId: '1789', username: 'creator', accountType: 'BUSINESS' });
+    expect(calls[0]!.url).toContain('https://graph.facebook.com/v99.0/me/accounts?');
+    await expect(c.me('EAAtoken')).rejects.toThrow(/pages_show_list/);
+    await c.createReelContainer('EAAtoken', '1789', 'hi');
+    expect(calls[2]!.url).toBe('https://graph.facebook.com/v99.0/1789/media');
+    await expect(c.refresh('EAAtoken')).rejects.toMatchObject({ code: 'AUTH' });
+  });
+});
