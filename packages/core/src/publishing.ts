@@ -125,6 +125,27 @@ export class YouTubeAccountService {
 // ---------------------------------------------------------------------------
 
 const LANGUAGE_CODES: Record<string, string> = { english: 'en', hindi: 'hi', spanish: 'es', portuguese: 'pt', french: 'fr', german: 'de', japanese: 'ja', korean: 'ko', russian: 'ru', italian: 'it', arabic: 'ar', turkish: 'tr', indonesian: 'id' };
+/**
+ * Insert the channel footer above the hashtag line and merge the channel's
+ * hashtags into it (#Shorts first; YouTube ignores all hashtags past 15).
+ */
+export function withChannelBranding(description: string, footer: string, channelHashtags: string): string {
+  const lines = description.split('\n');
+  const last = lines[lines.length - 1]?.trim() ?? '';
+  const hasTagLine = last.startsWith('#');
+  const body = (hasTagLine ? lines.slice(0, -1) : lines).join('\n').trimEnd();
+  const existing = hasTagLine ? last.split(/\s+/).filter((t) => t.startsWith('#')) : [];
+  const extra = channelHashtags
+    .split(/[\s,]+/)
+    .map((t) => t.replace(/^#/, '').replace(/[^\p{L}\p{N}_]/gu, ''))
+    .filter(Boolean)
+    .map((t) => `#${t}`);
+  const seen = new Set<string>();
+  const tags = [...existing, ...extra].filter((t) => !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 10);
+  const foot = footer.replace(/\\n/g, '\n').trim();
+  return [body, ...(foot ? ['', foot] : []), ...(tags.length ? ['', tags.join(' ')] : [])].join('\n').slice(0, 5000);
+}
+
 export const languageCode = (lang: string | null | undefined): string | undefined => {
   const l = (lang ?? '').trim().toLowerCase();
   return /^[a-z]{2}$/.test(l) ? l : LANGUAGE_CODES[l];
@@ -173,7 +194,9 @@ export class PublishService {
       durationSeconds: clip.durationSeconds,
       language: transcript?.language ?? 'en',
     });
-    await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { title: out.title, description: out.description, tags: out.tags, metadataEditedByUser: false } });
+    const { publishing } = (await this.deps.settings.getValues()).values;
+    const description = withChannelBranding(out.description, publishing.descriptionFooter ?? '', publishing.channelHashtags ?? '');
+    await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { title: out.title, description, tags: out.tags, metadataEditedByUser: false } });
     if (out.costUsd) await LiveSessionModel.updateOne({ _id: clip.liveSessionId }, { $inc: { estimatedCostUsd: out.costUsd } });
   }
 

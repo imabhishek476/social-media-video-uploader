@@ -1,0 +1,7 @@
+html,body{margin:0;padding:0;overflow:hidden;background:#07060f}
+*{box-sizing:border-box}
+.font{font-family:"Ubuntu","Ubuntu Sans",sans-serif;font-weight:800;letter-spacing:-0.02em}
+.grad{background:radial-gradient(ellipse at 20% 20%,#3b0d6b 0%,transparent 55%),radial-gradient(ellipse at 85% 80%,#06405e 0%,transparent 55%),linear-gradient(135deg,#0b0820 0%,#140a2e 50%,#05101f 100%)}
+.cyan{color:#22f0ff;text-shadow:0 0 18px rgba(34,240,255,.75),0 0 46px rgba(34,240,255,.35)}
+.pink{color:#ff2bd6;text-shadow:0 0 18px rgba(255,43,214,.75),0 0 46px rgba(255,43,214,.35)}
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:64px 64px;mask-image:radial-gradient(ellipse at center,black 30%,transparent 75%)}

@@ -148,6 +148,7 @@ export class InstagramPublishService {
             status: 'QUEUED',
             attempts: attempt,
             containerId: clip.instagram?.containerId ?? null,
+            uploaded: clip.instagram?.uploaded ?? false,
             mediaId: null,
             permalink: null,
             publishedAt: null,
@@ -203,7 +204,8 @@ export class InstagramPublishService {
       const { token, userId } = await account.credentials();
       let containerId = ig.containerId ?? null;
 
-      // Resume a container from an earlier attempt when it is still usable.
+      // Resume a container only if its video upload finished; otherwise it can never be processed.
+      if (containerId && !ig.uploaded) containerId = null;
       if (containerId) {
         const st = await client.containerStatus(token, containerId);
         if (st.status === 'PUBLISHED') {
@@ -214,12 +216,13 @@ export class InstagramPublishService {
       }
       if (!containerId) {
         containerId = await client.createReelContainer(token, userId, reelCaption(clip.title, clip.description, clip.tags));
-        await set({ containerId });
+        await set({ containerId, uploaded: false });
         await fsp.mkdir(work, { recursive: true });
         const video = path.join(work, 'reel.mp4');
         await this.deps.storage.download(clip.storageKey, video);
         await ctx.onProgress?.(20);
         await client.uploadVideo(token, containerId, video);
+        await set({ uploaded: true });
         await ctx.onProgress?.(60);
       }
 
@@ -229,7 +232,7 @@ export class InstagramPublishService {
         const st = await client.containerStatus(token, containerId);
         if (st.status === 'FINISHED') break;
         if (st.status === 'ERROR' || st.status === 'EXPIRED') {
-          await set({ containerId: null });
+          await set({ containerId: null, uploaded: false });
           throw new InstagramPublishError('BAD_REQUEST', `Instagram could not process the video: ${st.message ?? st.status}`, false);
         }
         if (Date.now() > deadline) return await ctx.defer(new Date(Date.now() + 60_000), 'Instagram is still processing the video');

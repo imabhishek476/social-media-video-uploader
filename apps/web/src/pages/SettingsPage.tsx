@@ -38,6 +38,7 @@ interface FieldDef {
   options?: readonly string[];
   helper?: string;
   unit?: string;
+  multiline?: boolean;
   /** Shown but not editable (comes from .env). */
   readOnly?: boolean;
 }
@@ -104,6 +105,8 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
       { key: 'windowStartHour', label: 'Publish window start', kind: 'number', unit: 'h', helper: 'Uploads only start from this hour…' },
       { key: 'windowEndHour', label: 'Publish window end', kind: 'number', unit: 'h', helper: '…until this hour. 0–24 = any time' },
       { key: 'timezone', label: 'Time zone', kind: 'text', helper: 'IANA name, e.g. Asia/Kolkata' },
+      { key: 'descriptionFooter', label: 'Description footer', kind: 'text', multiline: true, helper: 'Added to every new Short above the hashtags (channel name, subscribe line…).' },
+      { key: 'channelHashtags', label: 'Channel hashtags', kind: 'text', helper: 'Added to every new Short, e.g. gaming, streamhighlights' },
       { key: 'instagramMode', label: 'Instagram Reels', kind: 'select', options: ['MANUAL', 'WITH_YOUTUBE'], helper: 'WITH_YOUTUBE: approving a Short also posts it as a Reel. MANUAL: use "Post to Instagram" per clip.' },
     ],
   },
@@ -292,9 +295,11 @@ export function SettingsPage() {
                     {fields.map((field) => {
                       const value = draft[section][field.key] ?? '';
                       return (
-                        <Grid key={field.key} size={{ xs: 12, sm: 6 }}>
+                        <Grid key={field.key} size={{ xs: 12, sm: field.multiline ? 12 : 6 }}>
                           <TextField
                             fullWidth
+                            multiline={field.multiline}
+                            minRows={field.multiline ? 2 : undefined}
                             size="small"
                             label={field.label}
                             value={value}

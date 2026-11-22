@@ -79,3 +79,14 @@ describe('StreamerPurgeService', () => {
     expect(ch?.ignoredBroadcastIds).toEqual(['vid00000003']);
   });
 });
+
+describe('withChannelBranding', () => {
+  it('puts the footer above a merged, de-duplicated hashtag line', async () => {
+    const { withChannelBranding } = await import('../src');
+    const d = 'Big moment.\n\n🎮 From X: https://y\n\n#Shorts #GTA6';
+    expect(withChannelBranding(d, 'Clutch Clips\\nSubscribe', 'gaming, #gta6, stream-highlights')).toBe(
+      'Big moment.\n\n🎮 From X: https://y\n\nClutch Clips\nSubscribe\n\n#Shorts #GTA6 #gaming #streamhighlights',
+    );
+    expect(withChannelBranding('Plain', '', '')).toBe('Plain');
+  });
+});

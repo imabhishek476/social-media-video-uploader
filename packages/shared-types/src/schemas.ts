@@ -60,6 +60,10 @@ export const appSettingsSchema = z.object({
     }, 'Unknown time zone (use an IANA name like Asia/Kolkata)'),
     /** MANUAL: post to Instagram from Clip Studio only; WITH_YOUTUBE: approving a clip also queues the Reel. */
     instagramMode: z.enum(['MANUAL', 'WITH_YOUTUBE']),
+    /** Channel branding added to every new Short's description (above the hashtags). */
+    descriptionFooter: z.string().max(1000),
+    /** Channel hashtags added to every new Short (comma or space separated, without #). */
+    channelHashtags: z.string().max(200),
   }),
   costs: z.object({
     /** Month-to-date AI spend (transcription + LLM) at which processing pauses. 0 = no cap. */

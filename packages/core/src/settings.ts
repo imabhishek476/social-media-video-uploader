@@ -55,6 +55,8 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       windowEndHour: 24,
       timezone: 'UTC',
       instagramMode: 'MANUAL',
+      descriptionFooter: '🏄 Jumbo Surfer: daily gaming stream highlights\n🔔 Subscribe for new Shorts every day',
+      channelHashtags: 'jumbosurfer, gaming, streamhighlights',
     },
     costs: { monthlyBudgetUsd: 0 },
     providers: {

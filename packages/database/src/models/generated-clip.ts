@@ -58,6 +58,8 @@ const generatedClipSchema = new Schema(
           status: { type: String, enum: ['NOT_POSTED', 'QUEUED', 'POSTING', 'PUBLISHED', 'FAILED'], default: 'NOT_POSTED' },
           attempts: { type: Number, default: 0 },
           containerId: { type: String, default: null },
+          /** The video bytes reached Instagram for this container. */
+          uploaded: { type: Boolean, default: false },
           mediaId: { type: String, default: null },
           permalink: { type: String, default: null },
           publishedAt: { type: Date, default: null },

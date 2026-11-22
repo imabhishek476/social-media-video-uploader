@@ -1,6 +1,4 @@
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
-import { Readable } from 'node:stream';
 
 /**
  * Instagram Reels publishing via the Instagram API with Instagram Login
@@ -68,7 +66,7 @@ export class InstagramGraphClient {
     this.apiBase = (opts.apiBase ?? 'https://graph.instagram.com').replace(/\/$/, '');
     this.fbApiBase = (opts.fbApiBase ?? 'https://graph.facebook.com').replace(/\/$/, '');
     this.uploadBase = (opts.uploadBase ?? 'https://rupload.facebook.com').replace(/\/$/, '');
-    this.version = opts.version ?? 'v23.0';
+    this.version = opts.version ?? 'v27.0';
     this.fetchFn = opts.fetchFn ?? fetch;
   }
 
@@ -102,26 +100,53 @@ export class InstagramGraphClient {
     return { token: r.access_token, expiresAt: new Date(Date.now() + (r.expires_in ?? 60 * 86_400) * 1000) };
   }
 
+  /** Returns the container id; `uploadUri` is where Meta wants the bytes (matches its current API version). */
   async createReelContainer(token: string, userId: string, caption: string): Promise<string> {
-    const r = await this.call<{ id: string }>('POST', `/${userId}/media`, token, { media_type: 'REELS', upload_type: 'resumable', caption, share_to_feed: 'true' });
+    const r = await this.call<{ id: string; uri?: string }>('POST', `/${userId}/media`, token, { media_type: 'REELS', upload_type: 'resumable', caption, share_to_feed: 'true' });
+    if (r.uri?.startsWith('https://')) this.uploadUris.set(r.id, r.uri);
     return r.id;
   }
 
-  async uploadVideo(token: string, containerId: string, filePath: string): Promise<void> {
-    const { size } = await fsp.stat(filePath);
-    let res: Response;
-    try {
-      res = await this.fetchFn(`${this.uploadBase}/ig-api-upload/${this.version}/${containerId}`, {
-        method: 'POST',
-        headers: { Authorization: `OAuth ${token}`, offset: '0', file_size: String(size), 'Content-Type': 'application/octet-stream' },
-        body: Readable.toWeb(fs.createReadStream(filePath)) as ReadableStream,
-        duplex: 'half',
-        signal: AbortSignal.timeout(10 * 60_000),
-      });
-    } catch (err) {
-      throw new InstagramPublishError('UNAVAILABLE', `Instagram upload failed: ${(err as Error).message}`, true);
+  private readonly uploadUris = new Map<string, string>();
+
+  /**
+   * Send the video bytes. Meta's upload host sometimes answers a valid upload
+   * with "ProcessingFailedError" (often right after the container is created),
+   * so retry a few times with a short wait before giving up.
+   */
+  async uploadVideo(token: string, containerId: string, filePath: string, waits = [3000, 10_000, 30_000]): Promise<void> {
+    const body = await fsp.readFile(filePath);
+    const url = this.uploadUris.get(containerId) ?? `${this.uploadBase}/ig-api-upload/${this.version}/${containerId}`;
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      try {
+        // rupload needs Content-Length, so send the whole file (Reels are small) rather than a chunked stream.
+        res = await this.fetchFn(url, {
+          method: 'POST',
+          headers: { Authorization: `OAuth ${token}`, offset: '0', file_size: String(body.length) },
+          body,
+          signal: AbortSignal.timeout(10 * 60_000),
+        });
+      } catch (err) {
+        if (attempt < waits.length) {
+          await new Promise((r) => setTimeout(r, waits[attempt]));
+          continue;
+        }
+        throw new InstagramPublishError('UNAVAILABLE', `Instagram upload failed: ${(err as Error).message}`, true);
+      }
+      if (res.ok) {
+        this.uploadUris.delete(containerId);
+        return;
+      }
+      // rupload reports errors as { debug_info: { type, message } }.
+      const b = (await res.json().catch(() => ({}))) as GraphError & { debug_info?: { type?: string; message?: string } };
+      const flaky = res.status >= 500 || b.debug_info?.type === 'ProcessingFailedError';
+      if (flaky && attempt < waits.length) {
+        await new Promise((r) => setTimeout(r, waits[attempt]));
+        continue;
+      }
+      throw this.toError(res.status, b.error ? b : { error: { message: [b.debug_info?.type, b.debug_info?.message].filter(Boolean).join(': ') || undefined } }, 'upload');
     }
-    if (!res.ok) throw this.toError(res.status, (await res.json().catch(() => ({}))) as GraphError, 'upload');
   }
 
   async containerStatus(token: string, containerId: string): Promise<{ status: ContainerStatus; message: string | null }> {

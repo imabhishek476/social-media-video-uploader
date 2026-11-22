@@ -19,7 +19,7 @@ function fakeFetch(replies: Array<{ status?: number; body: unknown }>) {
 
 describe('InstagramGraphClient', () => {
   it('runs the resumable Reels flow', async () => {
-    const { fn, calls } = fakeFetch([{ body: { id: 'C9' } }, { body: { success: true } }, { body: { status_code: 'FINISHED' } }, { body: { id: 'M9' } }]);
+    const { fn, calls } = fakeFetch([{ body: { id: 'C9', uri: 'https://rupload.facebook.com/ig-api-upload/v99.0/C9' } }, { body: { success: true } }, { body: { status_code: 'FINISHED' } }, { body: { id: 'M9' } }]);
     const c = new InstagramGraphClient({ fetchFn: fn, version: 'v99.0' });
     const file = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'ig-')), 'r.mp4');
     await fs.writeFile(file, Buffer.alloc(77));
