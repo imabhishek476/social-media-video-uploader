@@ -49,6 +49,8 @@ const liveSessionSchema = new Schema(
       ),
       default: null,
     },
+    /** Layout for this session's Shorts (set by "Re-render with layout"); null = Settings. */
+    reframingMode: { type: String, default: null },
     clipCount: { type: Number, default: 0 },
     estimatedCostUsd: { type: Number, default: 0 },
     /** How the end was established: provider end time, N confirmations, or admin action. */

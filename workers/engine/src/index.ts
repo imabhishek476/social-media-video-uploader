@@ -146,6 +146,14 @@ async function budgetGate(services: Services, sessionId: string, ctx: JobContext
 const TICK_JOB_OPTS = { attempts: 1, removeOnComplete: 100, removeOnFail: 500 };
 const MONITOR_TICK_MS = 15_000;
 const SESSION_TICK_MS = 30_000;
+/**
+ * Long-running steps: short locks (BullMQ renews them every minute while the
+ * job runs) so a job interrupted by a restart or crash is noticed and resumed
+ * within ~2 minutes, and several interruptions are tolerated before failing.
+ * Work never blocks the event loop (ffmpeg, yt-dlp and speech-to-text run as
+ * child processes), so renewals always get through.
+ */
+const RESUMABLE = { lockDuration: 2 * 60 * 1000, stalledInterval: 30 * 1000, maxStalledCount: 10 } as const;
 
 const ROLES: Record<string, RoleDefinition> = {
   monitor: {
@@ -176,7 +184,7 @@ const ROLES: Record<string, RoleDefinition> = {
             }
             return outcome;
           }),
-          { connection, concurrency: config.defaults.maxConcurrentTranscodeJobs, lockDuration: 10 * 60 * 1000 },
+          { connection, concurrency: config.defaults.maxConcurrentTranscodeJobs, ...RESUMABLE },
         ),
       );
       // Recordings dropped into the inbox start processing within ~2 minutes.
@@ -203,7 +211,7 @@ const ROLES: Record<string, RoleDefinition> = {
             }),
           ),
           // Long streams take a while to download and transcribe.
-          { connection, concurrency: config.defaults.maxConcurrentTranscodeJobs, lockDuration: 30 * 60 * 1000 },
+          { connection, concurrency: config.defaults.maxConcurrentTranscodeJobs, ...RESUMABLE },
         ),
       );
       logger.info({ queue: queueName, provider: config.integrations.transcription.provider }, 'Transcription role started');
@@ -227,7 +235,7 @@ const ROLES: Record<string, RoleDefinition> = {
               return result;
             }),
           ),
-          { connection, concurrency: 2, lockDuration: 15 * 60 * 1000 },
+          { connection, concurrency: 2, ...RESUMABLE },
         ),
       );
       logger.info({ queue: queueName, provider: config.integrations.llm.provider, model: config.integrations.llm.model }, 'Highlight analysis role started');
@@ -247,7 +255,7 @@ const ROLES: Record<string, RoleDefinition> = {
             if (result !== 'SKIPPED' && result.rendered > 0) await enqueueMetadata(queues, data.liveSessionId, `render-${ctx.job.id}`);
             return result;
           }),
-          { connection, concurrency: config.defaults.maxConcurrentTranscodeJobs, lockDuration: 30 * 60 * 1000 },
+          { connection, concurrency: config.defaults.maxConcurrentTranscodeJobs, ...RESUMABLE },
         ),
       );
       logger.info({ queue: queueName }, 'Render role started');
@@ -273,7 +281,7 @@ const ROLES: Record<string, RoleDefinition> = {
             }
             return result;
           }),
-          { connection, concurrency: 2 },
+          { connection, concurrency: 2, ...RESUMABLE },
         ),
       );
       logger.info({ queue: queueName, provider: config.integrations.llm.provider }, 'Metadata role started');
@@ -310,7 +318,7 @@ const ROLES: Record<string, RoleDefinition> = {
             }
           }),
           // One upload at a time keeps the daily limit and spacing exact.
-          { connection, concurrency: 1, lockDuration: 30 * 60 * 1000 },
+          { connection, concurrency: 1, ...RESUMABLE },
         ),
       );
       logger.info({ queue: queueName }, 'Upload role started');
@@ -343,7 +351,7 @@ const ROLES: Record<string, RoleDefinition> = {
               }
             })(job, token);
           },
-          { connection, concurrency: 1, lockDuration: 30 * 60 * 1000 },
+          { connection, concurrency: 1, ...RESUMABLE },
         ),
       );
       await queues.get(queueName).upsertJobScheduler('instagram-token-refresh', { every: 24 * 60 * 60 * 1000 }, { name: 'refresh-token', data: {}, opts: TICK_JOB_OPTS });

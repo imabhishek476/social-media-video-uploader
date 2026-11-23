@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
+import { gameRules } from './games';
 import { audioScore, chatStats, excitementHits, loudnessStats, peakChat, peakLoudness } from './signals';
 import { AiProviderError, formatTimestamp, type HighlightAnalyzer, type HighlightRequest, type HighlightResponse, type RawHighlight } from './types';
 
@@ -10,7 +11,7 @@ export const HighlightOutput = z.object({
       start_seconds: z.number().describe('Clip start, absolute seconds from stream start'),
       end_seconds: z.number().describe('Clip end, absolute seconds from stream start'),
       key_moment_seconds: z.number().describe('The single best moment (the payoff) inside the clip'),
-      hook: z.string().describe('Short on-screen hook for the first seconds of the Short, max 60 characters'),
+      hook: z.string().describe('On-screen hook shown on the video: 2-6 punchy words a scroller instantly gets, e.g. HE GOT ME, 1 VS 3, CHAT WAS RIGHT, NO WAY THAT WORKED. What was said at the moment, or the name of what happened. No hashtags, no emoji'),
       reason: z.string().describe('One or two sentences: why this works as a standalone Short'),
       topic: z.string().describe('2-4 word topic label'),
       hook_score: z.number().describe('0-100: do the first 3 seconds grab attention?'),
@@ -24,9 +25,12 @@ export const HighlightOutput = z.object({
   ),
 });
 
+/** "Clip it", "clip that", "somebody clip this": the streamer asking for a clip. */
+export const CLIP_REQUEST = /\bclip (it|that|this)\b/i;
+
 export const SYSTEM_PROMPT = `You are a senior short-form video editor who finds the moments in livestream recordings that will perform best as standalone YouTube Shorts (vertical, under a minute).
 
-You get a timestamped transcript of part of a stream. Each line is "[<absolute seconds>s | <clock>] text", and lines where the audio is much louder than the stream's usual level are tagged (LOUD +N dB). Loudness spikes often mark reactions (screaming, laughing, hype), so weigh them, but a quiet funny line can still be a great clip. Lines tagged (CHAT SPIKE xN) were followed by live chat running N times faster than usual: viewers reacted, which is a strong sign of a great moment.
+You get a timestamped transcript of part of a stream. Each line is "[<absolute seconds>s | <clock>] text", and lines where the audio is much louder than the stream's usual level are tagged (LOUD +N dB). Loudness spikes often mark reactions (screaming, laughing, hype), so weigh them, but a quiet funny line can still be a great clip. Lines tagged (CHAT SPIKE xN) were followed by live chat running N times faster than usual: viewers reacted, which is a strong sign of a great moment. Lines tagged (CLIP REQUEST) are where someone asked for a clip: the moment just before is usually the one.
 
 Pick moments that:
 - work without context from the rest of the stream,
@@ -61,6 +65,7 @@ export function buildTranscriptBlock(req: HighlightRequest): string {
       const peak = peakChat(chat, s.startSeconds, s.endSeconds);
       const ratio = peak / Math.max(1, cs.median);
       if (chat.length && ratio >= 3 && peak >= cs.p95 && peak >= 5) tag += ` (CHAT SPIKE x${Math.round(ratio)})`;
+      if (CLIP_REQUEST.test(s.text)) tag += ' (CLIP REQUEST)';
       return `[${Math.round(s.startSeconds)}s | ${formatTimestamp(s.startSeconds)}]${tag} ${s.text}`;
     })
     .join('\n');
@@ -123,6 +128,7 @@ export function buildHighlightPrompt(req: HighlightRequest): string {
     `This part covers ${formatTimestamp(req.windowStartSeconds)}–${formatTimestamp(req.windowEndSeconds)} (${Math.round(req.windowStartSeconds)}s–${Math.round(req.windowEndSeconds)}s).`,
     `Clip length: ${req.clip.minSeconds}-${req.clip.maxSeconds} seconds, ideally about ${req.clip.targetSeconds}.`,
     `Return at most ${req.maxCandidates} clips, best first.`,
+    ...(req.game ? ['', gameRules(req.game)] : []),
     '',
     '<transcript>',
     buildTranscriptBlock(req),

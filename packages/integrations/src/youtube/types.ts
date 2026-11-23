@@ -46,6 +46,8 @@ export interface YouTubeMetadataProvider {
 export interface LiveChatPage {
   /** Publish times of the messages in this page. */
   messageTimes: Date[];
+  /** Author channel id per message (same order as messageTimes), null when unknown. */
+  authors?: Array<string | null>;
   nextPageToken: string | null;
   /** Minimum wait YouTube asks for before the next request. */
   pollingIntervalMs: number;

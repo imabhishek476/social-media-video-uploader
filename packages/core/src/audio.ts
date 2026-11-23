@@ -60,3 +60,44 @@ export async function measureLoudness(sourcePath: string): Promise<number[]> {
   }
   return values;
 }
+
+/**
+ * Stretches where the picture does not change (ad slates, "be right back" /
+ * "starting soon" screens, frozen video), as [start, end] seconds. Only key
+ * frames are decoded, so a multi-hour stream takes a minute or two.
+ */
+export async function measureStaticRanges(sourcePath: string, minSeconds = 20): Promise<Array<[number, number]>> {
+  try {
+    const { stderr } = await execFileAsync(
+      'ffmpeg',
+      ['-hide_banner', '-v', 'info', '-skip_frame', 'nokey', '-i', sourcePath, '-an', '-vf', `scale=160:-2,freezedetect=n=-45dB:d=${minSeconds}`, '-f', 'null', '-'],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+    return parseFreezes(stderr);
+  } catch {
+    return []; // never block analysis on this
+  }
+}
+
+export function parseFreezes(log: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let start: number | null = null;
+  for (const m of log.matchAll(/freeze_(start|end): ([\d.]+)/g)) {
+    const t = Number(m[2]);
+    if (m[1] === 'start') start = t;
+    else if (start !== null) {
+      out.push([Math.round(start * 10) / 10, Math.round(t * 10) / 10]);
+      start = null;
+    }
+  }
+  if (start !== null) out.push([Math.round(start * 10) / 10, Number.MAX_SAFE_INTEGER]);
+  return out;
+}
+
+/** Share (0–1) of [start, end] that lies in static ranges. */
+export function staticShare(ranges: Array<[number, number]>, start: number, end: number): number {
+  const len = Math.max(0.001, end - start);
+  let covered = 0;
+  for (const [a, b] of ranges) covered += Math.max(0, Math.min(b, end) - Math.max(a, start));
+  return Math.min(1, covered / len);
+}

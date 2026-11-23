@@ -6,6 +6,7 @@ import { GeneratedClipModel, HighlightCandidateModel, IntegrationCredentialModel
 import {
   AiProviderError,
   YouTubePublishError,
+  detectGame,
   videoUrlFor,
   youtubeShortUrl,
   type MetadataGenerator,
@@ -182,7 +183,8 @@ export class PublishService {
       LiveSessionModel.findById(clip.liveSessionId).lean(),
       TranscriptModel.findOne({ liveSessionId: clip.liveSessionId }).select('language').lean(),
     ]);
-    const streamer = session ? await StreamerChannelModel.findById(session.streamerChannelId).select('displayName').lean() : null;
+    const streamer = session ? await StreamerChannelModel.findById(session.streamerChannelId).select('displayName preferences.game').lean() : null;
+    const game = detectGame(streamer?.preferences?.game, session?.title);
     const out = await this.deps.metadata.generate({
       streamerName: streamer?.displayName ?? 'the streamer',
       streamTitle: session?.title ?? '',
@@ -193,6 +195,7 @@ export class PublishService {
       transcriptExcerpt: candidate?.transcriptExcerpt ?? '',
       durationSeconds: clip.durationSeconds,
       language: transcript?.language ?? 'en',
+      game,
     });
     const { publishing } = (await this.deps.settings.getValues()).values;
     const description = withChannelBranding(out.description, publishing.descriptionFooter ?? '', publishing.channelHashtags ?? '');

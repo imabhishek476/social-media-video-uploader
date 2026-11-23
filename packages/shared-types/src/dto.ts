@@ -192,6 +192,7 @@ export interface StreamerPreferencesDTO {
   minClipDurationSeconds: number | null;
   maxClipDurationSeconds: number | null;
   language: string | null;
+  game: string | null;
 }
 
 export interface StreamerDTO {
@@ -258,6 +259,8 @@ export interface LiveSessionDTO {
   highlightCount: number;
   /** Facecam box for the split layout; source `none` = looked and found no webcam. */
   facecam: { x: number; y: number; w: number; h: number; source: 'detected' | 'manual' | 'none' } | null;
+  /** Layout chosen for this session; null = the Settings default. */
+  reframingMode: string | null;
   clipCount: number;
   estimatedCostUsd: number;
   reprocessCount: number;

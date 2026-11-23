@@ -121,6 +121,8 @@ export const ReframingMode = {
   BLUR_FIT: 'BLUR_FIT',
   /** Streamer layout: facecam on top, gameplay below (falls back to BLUR_FIT when no facecam is found). */
   FACECAM_SPLIT: 'FACECAM_SPLIT',
+  /** Game fills the Short, webcam small in the top corner (falls back to CENTER_CROP when no facecam is found). */
+  GAMEPLAY: 'GAMEPLAY',
   FACE_TRACK: 'FACE_TRACK',
   ACTIVE_SPEAKER: 'ACTIVE_SPEAKER',
   CUSTOM_LAYOUT: 'CUSTOM_LAYOUT',

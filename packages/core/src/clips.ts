@@ -15,9 +15,9 @@ import {
   type GeneratedClipDTO,
 } from '@shorts/shared-types';
 import { loadTranscriptSegments } from './analysis';
-import { buildAssCaptions, type CaptionStyle } from './captions';
+import { FONTS_DIR, buildAssCaptions, presetStyle, type CaptionStyle } from './captions';
 import { DomainError, isDuplicateKeyError } from './errors';
-import { SHORT_HEIGHT, SHORT_WIDTH, extractFrames, renderShort, type FrameBox, type RenderMode } from './render';
+import { SHORT_HEIGHT, SHORT_WIDTH, captionAnchor, extractFrames, renderShort, type FrameBox, type RenderMode } from './render';
 import type { SettingsService } from './settings';
 
 export interface RenderDeps {
@@ -90,16 +90,19 @@ export class RenderService {
 
     await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { processingStatus: ProcessingStatus.RUNNING, processingStage: RENDER_STAGE } });
     const { clips: clipSettings, subtitles } = (await this.deps.settings.getValues()).values;
-    const configured: RenderMode = clipSettings.reframingMode === 'BLUR_FIT' || clipSettings.reframingMode === 'FACECAM_SPLIT' ? clipSettings.reframingMode : 'CENTER_CROP';
+    // A mode chosen for this session ("Re-render with layout…") wins over Settings.
+    const wanted = session.reframingMode ?? clipSettings.reframingMode;
+    const configured: RenderMode = (['BLUR_FIT', 'FACECAM_SPLIT', 'GAMEPLAY'] as string[]).includes(wanted) ? (wanted as RenderMode) : 'CENTER_CROP';
     let mode: RenderMode = configured;
     let facecam: FrameBox | null = null;
-    const style: CaptionStyle = {
+    const style: CaptionStyle = presetStyle(subtitles.captionStyle ?? 'CUSTOM', {
       fontFamily: subtitles.fontFamily,
       fontSize: subtitles.fontSize,
       primaryColor: subtitles.primaryColor,
       highlightColor: subtitles.highlightColor,
       position: subtitles.position,
-    };
+    });
+    const hookMode = subtitles.hookOverlay ?? 'OFF';
 
     const work = path.join(this.deps.workDir, `render-${sessionId}-${process.pid}`);
     await fsp.rm(work, { recursive: true, force: true });
@@ -115,10 +118,10 @@ export class RenderService {
         await GeneratedClipModel.updateMany({ _id: { $in: claimed.map((c) => c.clipId) } }, { $set: { renderStatus: RenderStatus.PENDING, renderStartedAt: null } });
         throw err;
       }
-      if (configured === 'FACECAM_SPLIT') {
+      if (configured === 'FACECAM_SPLIT' || configured === 'GAMEPLAY') {
         facecam = await this.resolveFacecam(sessionId, source, session.sourceMedia.durationSeconds ?? 0, work);
-        // No webcam (IRL, just chatting, or not found): keep the whole frame visible instead.
-        if (!facecam) mode = 'BLUR_FIT';
+        // No webcam (IRL, just chatting, or not found): split shows the whole frame; gameplay fills with the game.
+        if (!facecam) mode = configured === 'GAMEPLAY' ? 'CENTER_CROP' : 'BLUR_FIT';
       }
       await onProgress?.(10);
 
@@ -127,12 +130,14 @@ export class RenderService {
         const files = { video: path.join(work, `${clipId}.mp4`), thumb: path.join(work, `${clipId}.jpg`), ass: path.join(work, `${clipId}.ass`) };
         try {
           const segments = await loadTranscriptSegments(sessionId, c.startSeconds, c.endSeconds);
-          await fsp.writeFile(files.ass, buildAssCaptions(segments, c.startSeconds, c.endSeconds, style));
+          const hook = hookMode !== 'OFF' && c.hook ? { text: c.hook, mode: hookMode } : null;
+          await fsp.writeFile(files.ass, buildAssCaptions(segments, c.startSeconds, c.endSeconds, { ...style, anchorY: captionAnchor(mode, style.position) }, hook));
           const out = await renderShort({
             sourcePath: source,
             outPath: files.video,
             thumbnailPath: files.thumb,
-            captionsPath: segments.length ? files.ass : null,
+            captionsPath: segments.length || hook ? files.ass : null,
+            fontsDir: FONTS_DIR,
             startSeconds: c.startSeconds,
             endSeconds: c.endSeconds,
             keyMomentSeconds: c.keyMomentSeconds ?? null,
@@ -270,6 +275,35 @@ export class RenderService {
 /** Read side for rendered clips (API). */
 export class ClipService {
   constructor(private readonly storage: ObjectStorage) {}
+
+  /**
+   * Clean slate before regenerating: deletes every Short of the session that
+   * was not published (files, captions, thumbnails and records), optionally
+   * sets the session's layout, and returns how many were removed. Shorts
+   * already on YouTube or Instagram are kept so they are never uploaded twice.
+   */
+  async resetSession(sessionId: string, reframingMode?: string | null): Promise<{ removed: number; kept: number }> {
+    const clips = await GeneratedClipModel.find({ liveSessionId: sessionId }).lean();
+    let removed = 0;
+    let kept = 0;
+    for (const c of clips) {
+      const published = c.uploadStatus !== UploadStatus.NOT_UPLOADED || (c as { instagram?: { status?: string } }).instagram?.status === 'PUBLISHED';
+      if (published) {
+        kept++;
+        continue;
+      }
+      for (const key of [c.storageKey, c.thumbnailKey, c.subtitleKey]) if (key) await this.storage.delete(key).catch(() => undefined);
+      await GeneratedClipModel.deleteOne({ _id: c._id });
+      removed++;
+    }
+    const set: Record<string, unknown> = {};
+    if (reframingMode !== undefined) set.reframingMode = reframingMode;
+    if (Object.keys(set).length) await LiveSessionModel.updateOne({ _id: sessionId }, { $set: set });
+    const clipCount = await GeneratedClipModel.countDocuments({ liveSessionId: sessionId, renderStatus: RenderStatus.RENDERED });
+    await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { clipCount } });
+    return { removed, kept };
+  }
+
 
   /** Latest version of each clip in a session. */
   async listForSession(sessionId: string): Promise<GeneratedClipDTO[]> {

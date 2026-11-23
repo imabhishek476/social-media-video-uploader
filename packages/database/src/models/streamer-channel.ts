@@ -12,6 +12,8 @@ const preferencesSchema = new Schema(
     minClipDurationSeconds: { type: Number, default: null },
     maxClipDurationSeconds: { type: Number, default: null },
     language: { type: String, default: null },
+    /** Game this streamer plays, if fixed (otherwise read from each stream title). */
+    game: { type: String, default: null },
   },
   { _id: false },
 );

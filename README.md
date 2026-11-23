@@ -179,6 +179,32 @@ docs/               Roadmap and feature proposals
 - **Pacing.** `dailyUploadLimit` (0 means no limit) and `minMinutesBetweenUploads` delay jobs instead of failing them. When the YouTube quota runs out, uploads wait until the quota resets at midnight Pacific time.
 - **Connection.** Settings has **Connect YouTube channel**, which runs an OAuth web-server flow with `youtube.upload` and `youtube.readonly` scopes. The refresh token is stored encrypted with `ENCRYPTION_KEY`, and the callback is protected by a single-use `state`. A revoked token marks the connection as **Needs reconnect**.
 
+## Speech-to-text on your machine
+
+Set `TRANSCRIPTION_PROVIDER=local` to transcribe English with NVIDIA Parakeet (sherpa-onnx). It's free, has no rate limits, and the audio never leaves the machine. On 4–6 CPU threads, a 6-hour stream takes about 45–60 minutes.
+- **Model files:** download once into `storage/models/parakeet-tdt-0.6b-v2-int8` (see `.env.example`).
+- **Other languages:** streamers whose language is set to anything other than English (streamer **Edit → Language**, e.g. `hi`) use the `TRANSCRIPTION_*` API (Groq Whisper) instead.
+- **Separate process:** speech-to-text runs in its own process, so the worker never freezes.
+- **Restarts:** jobs use short, auto-renewed locks, so a job interrupted by a restart resumes within about 2 minutes.
+
+## Better Shorts: hook, caption styles, gameplay layout, games
+
+- **Hook text:** the AI writes a 2–6 word hook ("HE GOT ME", "1 VS 3") for each moment. It's drawn in a white box at the top: *Settings → Subtitles → Hook text on video* (`ALWAYS`, `INTRO` = first 4 s, `OFF`).
+- **Caption styles** (*Settings → Subtitles → Caption style*):
+  - `HYPE`: Anton, 2 words, red;
+  - `BOUNCE`: Poppins ExtraBold, 3 words, cyan;
+  - `CLEAN`: 4 words, normal case;
+  - `CUSTOM`: the font, size and colours you set.
+
+  The spoken word "pops". The fonts are bundled in `packages/core/fonts` (SIL Open Font License).
+- **Gameplay layout** (*Settings → Clips → Reframing mode → GAMEPLAY*): the game fills the Short and the webcam sits in the top-left with a neon border. Clip Studio's facecam tools work for it. Without a webcam, it falls back to a centre crop.
+- **Games:** about 20 games are recognised from the streamer's *Main game* setting or the stream title. When the game is known:
+  - the AI judges moments the way that game's players would;
+  - every post gets the game's hashtags (e.g. `#GTA6 #GTAVI #ViceCity`).
+- **Ads and static screens:** stretches where the picture doesn't change for 20 s or more (ad slates, BRB screens, frozen video) are found with ffmpeg in about a minute per 6-hour stream, and clips there are dropped.
+- **Chat:** chat spikes count *different people*, so a single spammer or bot wave doesn't count as a crowd reacting.
+- **"Clip it":** lines where someone says "clip it" or "clip that" are flagged to the AI.
+
 ## Live chat signal
 
 While a stream is live, the worker reads its YouTube live chat every `chatPollSeconds` (Settings → Monitoring, default 60, 0 = off). Only the number of messages per 10 seconds is stored, not their text or authors. Analysis uses the stored counts in two ways:

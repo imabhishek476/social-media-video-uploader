@@ -15,6 +15,8 @@ const chatActivitySchema = new Schema(
     anchorAt: { type: Date, required: true },
     bucketSeconds: { type: Number, default: 10 },
     counts: { type: [Number], default: [] },
+    /** Different people chatting per bucket (a spammer or bot wave counts once). */
+    uniqueCounts: { type: [Number], default: [] },
     messageCount: { type: Number, default: 0 },
     status: { type: String, enum: ['ACTIVE', 'ENDED', 'UNAVAILABLE'], default: 'ACTIVE' },
     nextPollAt: { type: Date, default: () => new Date() },

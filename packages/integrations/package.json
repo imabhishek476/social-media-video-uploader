@@ -20,6 +20,7 @@
     "@shorts/database": "0.1.0",
     "@shorts/queue": "0.1.0",
     "@shorts/shared-types": "0.1.0",
+    "sherpa-onnx-node": "^2.0.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {

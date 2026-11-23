@@ -18,6 +18,8 @@ const transcriptSchema = new Schema(
     chunkCount: { type: Number, default: 0 },
     /** Loudness per second of audio (dBFS), used to score highlights. */
     loudness: { type: [Number], default: [], select: false },
+    /** [start, end] seconds where the picture is static (ads, BRB screens); clips there are dropped. */
+    staticRanges: { type: [[Number]], default: [] },
     costUsd: { type: Number, default: 0 },
     /** Optional full transcript in object storage (e.g. JSON/VTT). */
     storageKey: { type: String, default: null },

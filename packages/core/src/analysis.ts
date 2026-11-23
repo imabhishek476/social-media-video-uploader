@@ -6,6 +6,7 @@ import {
   audioScore,
   chatScore,
   chatStats,
+  detectGame,
   loudnessStats,
   type HighlightAnalyzer,
   type ObjectStorage,
@@ -16,7 +17,7 @@ import {
 import type { Logger } from '@shorts/observability';
 import { UnrecoverableError, idempotencyKey, type QueueRegistry } from '@shorts/queue';
 import { CandidateStatus, JobType, ProcessingStage, ProcessingStatus, SessionStatus, SourceMediaStatus } from '@shorts/shared-types';
-import { extractAudioChunks, measureLoudness } from './audio';
+import { extractAudioChunks, measureLoudness, measureStaticRanges, staticShare } from './audio';
 import { loadChatCounts } from './chat';
 import { blendSignals, mergeHighlights, normalizeHighlight } from './highlights';
 import { enqueueTracked } from './jobs';
@@ -91,12 +92,19 @@ export class AnalysisService {
       await storage.download(key, local);
       await onProgress?.(10);
 
-      const [chunks, loudness] = await Promise.all([extractAudioChunks(local, path.join(work, 'audio'), transcription.maxFileBytes), measureLoudness(local)]);
+      const [chunks, loudness, staticRanges] = await Promise.all([
+        extractAudioChunks(local, path.join(work, 'audio'), transcription.maxFileBytes),
+        measureLoudness(local),
+        measureStaticRanges(local),
+      ]);
       await fsp.rm(local, { force: true }); // the video is no longer needed for this step
       await onProgress?.(25);
 
       // Chunks finished by an earlier (rate-limited) attempt.
       const partialPath = path.join(this.deps.workDir, `transcript-partial-${sessionId}.json`);
+      // The streamer's language (Settings on the streamer page) picks the speech model.
+      const streamerLang = (await StreamerChannelModel.findById(session.streamerChannelId).select('preferences.language').lean())?.preferences?.language;
+      const speechLang = streamerLang || this.deps.language;
       type Partial = { chunks: number; done: Record<string, { language: string; segments: TranscriptSegment[] }> };
       let partial: Partial = { chunks: chunks.length, done: {} };
       try {
@@ -110,7 +118,7 @@ export class AnalysisService {
         if (partial.done[i]) continue;
         let out;
         try {
-          out = await transcription.transcribe(chunk.path, { language: this.deps.language, durationSeconds: chunk.durationSeconds });
+          out = await transcription.transcribe(chunk.path, { language: speechLang ?? undefined, durationSeconds: chunk.durationSeconds });
         } catch (err) {
           if (defer && err instanceof AiProviderError && err.code === 'RATE_LIMITED') {
             await fsp.writeFile(partialPath, JSON.stringify(partial));
@@ -138,7 +146,7 @@ export class AnalysisService {
       }
 
       const segments: TranscriptSegment[] = [];
-      let language = this.deps.language ?? 'en';
+      let language = speechLang ?? 'en';
       for (let i = 0; i < chunks.length; i++) {
         const c = partial.done[i]!;
         language = c.language || language;
@@ -146,7 +154,7 @@ export class AnalysisService {
       }
       const audioSeconds = chunks.reduce((n, c) => n + c.durationSeconds, 0);
       const costUsd = (audioSeconds / 60) * transcription.costPerMinuteUsd;
-      await this.saveTranscript(sessionId, { provider: transcription.name, language, durationSeconds: Math.round(audioSeconds), segments, loudness, costUsd });
+      await this.saveTranscript(sessionId, { provider: transcription.name, language, durationSeconds: Math.round(audioSeconds), segments, loudness, staticRanges, costUsd });
       await LiveSessionModel.updateOne({ _id: sessionId }, { $inc: { estimatedCostUsd: costUsd } });
       await fsp.rm(partialPath, { force: true });
       await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { lastError: null } });
@@ -161,7 +169,7 @@ export class AnalysisService {
 
   private async saveTranscript(
     sessionId: string,
-    t: { provider: string; language: string; durationSeconds: number; segments: TranscriptSegment[]; loudness: number[]; costUsd: number },
+    t: { provider: string; language: string; durationSeconds: number; segments: TranscriptSegment[]; loudness: number[]; staticRanges?: Array<[number, number]>; costUsd: number },
   ) {
     // Replace atomically enough for our purposes: chunks first, header (the "done" marker) last.
     const old = await TranscriptModel.findOne({ liveSessionId: sessionId }).select('_id').lean();
@@ -191,6 +199,7 @@ export class AnalysisService {
       // A transcript with no speech still counts as done (loudness can still find moments).
       chunkCount: Math.max(1, docs.length),
       loudness: t.loudness,
+      staticRanges: t.staticRanges ?? [],
       costUsd: t.costUsd,
     });
   }
@@ -208,7 +217,8 @@ export class AnalysisService {
 
     await this.setStage(sessionId, ProcessingStage.ANALYZING);
     const { clips } = (await this.deps.settings.getValues()).values;
-    const streamer = await StreamerChannelModel.findById(session.streamerChannelId).select('displayName').lean();
+    const streamer = await StreamerChannelModel.findById(session.streamerChannelId).select('displayName preferences.game').lean();
+    const game = detectGame(streamer?.preferences?.game, session.title);
     const segments = await this.loadSegments(sessionId);
     const loudness = (transcript.loudness ?? []) as number[];
     const sourceSeconds = session.sourceMedia?.durationSeconds ?? transcript.durationSeconds ?? loudness.length;
@@ -235,6 +245,7 @@ export class AnalysisService {
           segments: segments.filter((s) => s.endSeconds > from && s.startSeconds < to),
           loudness,
           chat,
+          game,
           clip: { minSeconds: clips.minDurationSeconds, maxSeconds: clips.maxDurationSeconds, targetSeconds: clips.defaultDurationSeconds },
           maxCandidates: Math.max(3, clips.maxClipsPerStream),
         });
@@ -249,9 +260,13 @@ export class AnalysisService {
     }
 
     const heuristic = analyzer.name === 'heuristic';
+    // Ad breaks, "be right back" screens and frozen video never make good Shorts.
+    let staticRanges = ((transcript.staticRanges ?? []) as unknown as number[][]).map((r) => [r[0]!, r[1]!] as [number, number]);
+    // A video that is mostly one still picture (podcast, audio over an image) is not "ads": keep everything.
+    if (staticShare(staticRanges, 0, sourceSeconds) > 0.6) staticRanges = [];
     const normalized = raw
       .map((h) => normalizeHighlight(h, bounds, segments))
-      .filter((h): h is RawHighlight => h !== null)
+      .filter((h): h is RawHighlight => h !== null && staticShare(staticRanges, h.startSeconds, h.endSeconds) < 0.5)
       .map((h) => {
         const audio = audioScore(loudness, h.startSeconds, h.endSeconds, stats);
         const chatPts = chat.length ? chatScore(chat, h.startSeconds, h.endSeconds, cStats) : null;

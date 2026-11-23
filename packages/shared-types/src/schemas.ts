@@ -40,6 +40,10 @@ export const appSettingsSchema = z.object({
     primaryColor: hexColor,
     highlightColor: hexColor,
     position: z.enum(enumValues(SubtitlePosition) as [SubtitlePosition, ...SubtitlePosition[]]),
+    /** HYPE / BOUNCE / CLEAN presets, or CUSTOM = the font, size and colours above. */
+    captionStyle: z.enum(['STREAMER', 'HYPE', 'BOUNCE', 'CLEAN', 'CUSTOM']),
+    /** Hook text box at the top: whole clip, first 4 s, or off. */
+    hookOverlay: z.enum(['ALWAYS', 'INTRO', 'OFF']),
   }),
   publishing: z.object({
     mode: z.enum(enumValues(PublishingMode) as [PublishingMode, ...PublishingMode[]]),
@@ -130,6 +134,7 @@ export const streamerPreferencesSchema = z
     minClipDurationSeconds: nullableInt(5, 180),
     maxClipDurationSeconds: nullableInt(5, 180),
     language: z.string().trim().min(2).max(10).nullable(),
+    game: z.string().trim().min(2).max(60).nullable(),
   })
   .partial()
   .strict()

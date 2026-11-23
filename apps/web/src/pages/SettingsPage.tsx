@@ -90,6 +90,8 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
       { key: 'primaryColor', label: 'Text colour', kind: 'color' },
       { key: 'highlightColor', label: 'Highlight colour', kind: 'color' },
       { key: 'position', label: 'Position', kind: 'select', options: enumValues(SubtitlePosition) },
+      { key: 'captionStyle', label: 'Caption style', kind: 'select', options: ['STREAMER', 'HYPE', 'BOUNCE', 'CLEAN', 'CUSTOM'], helper: 'STREAMER: glowing caps on the cam/game seam · HYPE: big 2-word red pop · BOUNCE: 3 words cyan · CLEAN: 4 words · CUSTOM: font/size/colours above' },
+      { key: 'hookOverlay', label: 'Hook text on video', kind: 'select', options: ['ALWAYS', 'INTRO', 'OFF'], helper: 'Bold hook in a white box at the top: whole clip, first 4 s, or off' },
     ],
   },
   {

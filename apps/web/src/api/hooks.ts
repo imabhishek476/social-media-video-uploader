@@ -314,8 +314,11 @@ export function useClipMedia(clipId: string | null, version: number | null) {
 export function useRenderSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ sessionId, force }: { sessionId: string; force?: boolean }) =>
-      api<{ queued: boolean }>(`/live-sessions/${sessionId}/render`, { method: 'POST', body: { force: Boolean(force) } }),
+    mutationFn: ({ sessionId, force, fresh, reframingMode }: { sessionId: string; force?: boolean; fresh?: boolean; reframingMode?: string }) =>
+      api<{ queued: boolean; removed?: number; kept?: number }>(`/live-sessions/${sessionId}/render`, {
+        method: 'POST',
+        body: { force: Boolean(force), ...(fresh ? { fresh: true } : {}), ...(reframingMode ? { reframingMode } : {}) },
+      }),
     onSuccess: (_d, { sessionId }) => {
       void qc.invalidateQueries({ queryKey: ['clips', sessionId] });
       void qc.invalidateQueries({ queryKey: ['sessions'] });

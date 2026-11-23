@@ -15,7 +15,7 @@ const RESPONSE_SCHEMA = {
           start_seconds: { type: 'NUMBER', description: 'Clip start, absolute seconds from stream start' },
           end_seconds: { type: 'NUMBER', description: 'Clip end, absolute seconds from stream start' },
           key_moment_seconds: { type: 'NUMBER', description: 'The single best moment (the payoff) inside the clip' },
-          hook: { type: 'STRING', description: 'Short on-screen hook for the first seconds of the Short, max 60 characters' },
+          hook: { type: 'STRING', description: 'On-screen hook shown on the video: 2-6 punchy words a scroller instantly gets, e.g. HE GOT ME, 1 VS 3, CHAT WAS RIGHT, NO WAY THAT WORKED. What was said at the moment, or the name of what happened. No hashtags, no emoji' },
           reason: { type: 'STRING', description: 'One or two sentences: why this works as a standalone Short' },
           topic: { type: 'STRING', description: '2-4 word topic label' },
           hook_score: score('0-100: do the first 3 seconds grab attention?'),

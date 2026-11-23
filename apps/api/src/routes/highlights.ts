@@ -73,9 +73,16 @@ export function createClipRoutes(clips: ClipService, storage: ObjectStorage, que
     const id = String(req.params.id);
     await sessions.get(id);
     const force = req.body?.force === true;
-    await enqueueRender(queues, id, `manual-${Date.now()}`, force);
-    await recordAudit(req, { action: 'session.render', entityType: 'LiveSession', entityId: id, metadata: { force } });
-    res.status(202).json({ queued: true });
+    // fresh = delete the unpublished Shorts first and regenerate them (optionally in another layout).
+    const fresh = req.body?.fresh === true;
+    const modes = ['CENTER_CROP', 'BLUR_FIT', 'FACECAM_SPLIT', 'GAMEPLAY'];
+    const mode = req.body?.reframingMode;
+    if (mode !== undefined && mode !== null && !modes.includes(mode)) throw new DomainError('VALIDATION_ERROR', `reframingMode must be one of ${modes.join(', ')}`, 400);
+    let reset: { removed: number; kept: number } | null = null;
+    if (fresh) reset = await clips.resetSession(id, mode === undefined ? undefined : mode);
+    await enqueueRender(queues, id, `manual-${Date.now()}`, force || fresh);
+    await recordAudit(req, { action: 'session.render', entityType: 'LiveSession', entityId: id, metadata: { force, fresh, mode, reset } });
+    res.status(202).json({ queued: true, ...(reset ?? {}) });
   });
 
   const clipRouter = Router();

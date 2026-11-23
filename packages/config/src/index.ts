@@ -58,8 +58,14 @@ const EnvSchema = z
     YOUTUBE_CLIENT_ID: optionalString,
     YOUTUBE_CLIENT_SECRET: optionalString,
     YOUTUBE_REDIRECT_URI: optionalString,
-    /** `openai` = Whisper-style /audio/transcriptions API (OpenAI, Groq, …). */
-    TRANSCRIPTION_PROVIDER: z.enum(['openai']).default('openai'),
+    /**
+     * `openai` = Whisper-style /audio/transcriptions API (OpenAI, Groq, …).
+     * `local` = NVIDIA Parakeet on this machine (English, free, no rate limits);
+     * non-English sessions use the openai-style API when TRANSCRIPTION_API_KEY is set.
+     */
+    TRANSCRIPTION_PROVIDER: z.enum(['openai', 'local']).default('openai'),
+    LOCAL_ASR_MODEL_DIR: optionalString,
+    LOCAL_ASR_THREADS: z.coerce.number().int().min(1).max(64).default(4),
     TRANSCRIPTION_API_KEY: optionalString,
     TRANSCRIPTION_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
     TRANSCRIPTION_MODEL: z.string().default('whisper-1'),
@@ -107,7 +113,7 @@ const EnvSchema = z
       need('YOUTUBE_CLIENT_ID', 'uploading to the central YouTube channel');
       need('YOUTUBE_CLIENT_SECRET', 'uploading to the central YouTube channel');
       need('ENCRYPTION_KEY', 'storing the YouTube refresh token');
-      need('TRANSCRIPTION_API_KEY', 'speech-to-text');
+      if (env.TRANSCRIPTION_PROVIDER !== 'local') need('TRANSCRIPTION_API_KEY', 'speech-to-text');
       if (env.LLM_PROVIDER === 'gemini') need('GEMINI_API_KEY', 'highlight analysis and metadata with Gemini');
       if (env.LLM_PROVIDER === 'anthropic' && !env.LLM_API_KEY && !process.env.ANTHROPIC_API_KEY) {
         ctx.addIssue({ code: 'custom', path: ['LLM_API_KEY'], message: 'LLM_API_KEY or ANTHROPIC_API_KEY is required for LLM_PROVIDER=anthropic' });
@@ -148,7 +154,7 @@ export interface AppConfig {
       liveDetection: 'rss' | 'search';
       dailyQuota: number;
     };
-    transcription: { provider: 'openai'; apiKey?: string; baseUrl: string; model: string; costPerMinuteUsd: number; language?: string };
+    transcription: { provider: 'openai' | 'local'; localModelDir: string; localThreads: number; apiKey?: string; baseUrl: string; model: string; costPerMinuteUsd: number; language?: string };
     llm: { provider: 'anthropic' | 'gemini'; apiKey?: string; model: string; gemini: { apiKey?: string; model: string } };
     videoSource: { provider: string; ytdlpBinary: string };
     storage: { provider: 'local' | 'gcs'; bucket?: string; projectId?: string; keyFile?: string };
@@ -215,6 +221,8 @@ export function parseConfig(source: Record<string, string | undefined>, baseDir 
       },
       transcription: {
         provider: e.TRANSCRIPTION_PROVIDER,
+        localModelDir: path.resolve(baseDir, e.LOCAL_ASR_MODEL_DIR ?? path.join(e.STORAGE_DIR ?? './storage', 'models', 'parakeet-tdt-0.6b-v2-int8')),
+        localThreads: e.LOCAL_ASR_THREADS,
         apiKey: e.TRANSCRIPTION_API_KEY,
         baseUrl: e.TRANSCRIPTION_BASE_URL,
         model: e.TRANSCRIPTION_MODEL,

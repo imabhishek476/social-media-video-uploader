@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
 
-export type RenderMode = 'CENTER_CROP' | 'BLUR_FIT' | 'FACECAM_SPLIT';
+export type RenderMode = 'CENTER_CROP' | 'BLUR_FIT' | 'FACECAM_SPLIT' | 'GAMEPLAY';
 
 /** Normalised rectangle (0–1 of the source frame). */
 export interface FrameBox {
@@ -12,7 +12,22 @@ export interface FrameBox {
 }
 
 /** Facecam band height in the split layout (gameplay gets the rest). */
-export const FACECAM_BAND = 768;
+export const FACECAM_BAND = 900;
+/** White line between webcam and gameplay in the split layout. */
+const DIVIDER = 8;
+
+/**
+ * Where the caption line sits (px from the top of 1920), so it never covers
+ * the middle of the gameplay: on the webcam/gameplay seam for the split
+ * layout, in the lower third (above the Shorts UI) for full-screen gameplay.
+ * null = use the caption position from Settings.
+ */
+export function captionAnchor(mode: RenderMode, position: 'TOP' | 'MIDDLE' | 'BOTTOM'): number | null {
+  if (mode === 'FACECAM_SPLIT') return FACECAM_BAND - 24;
+  if (position === 'TOP') return null;
+  if (mode === 'GAMEPLAY' || mode === 'CENTER_CROP') return 1430;
+  return null;
+}
 
 export interface RenderSpec {
   sourcePath: string;
@@ -27,6 +42,8 @@ export interface RenderSpec {
   mode: RenderMode;
   /** Required for FACECAM_SPLIT. */
   facecam?: FrameBox | null;
+  /** Extra fonts for the captions (bundled caption fonts). */
+  fontsDir?: string | null;
 }
 
 export const SHORT_WIDTH = 1080;
@@ -37,10 +54,10 @@ const FPS = 30;
 export const filterPath = (p: string) => p.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,');
 
 /** Video filter graph producing `[v]` at 1080×1920. */
-export function videoFilter(mode: RenderMode, captionsPath: string | null, facecam?: FrameBox | null): string {
+export function videoFilter(mode: RenderMode, captionsPath: string | null, facecam?: FrameBox | null, fontsDir?: string | null): string {
   const W = SHORT_WIDTH;
   const H = SHORT_HEIGHT;
-  const captions = captionsPath ? `,ass=filename=${filterPath(captionsPath)}` : '';
+  const captions = captionsPath ? `,ass=filename=${filterPath(captionsPath)}${fontsDir ? `:fontsdir=${filterPath(fontsDir)}` : ''}` : '';
   if (mode === 'FACECAM_SPLIT' && facecam) {
     // Facecam (cropped to fill the top band) stacked over a centre crop of the gameplay.
     const f = (n: number) => n.toFixed(4);
@@ -50,7 +67,19 @@ export function videoFilter(mode: RenderMode, captionsPath: string | null, facec
       '[0:v]split=2[camsrc][gamesrc]',
       `[camsrc]crop=w=iw*${f(facecam.w)}:h=ih*${f(facecam.h)}:x=iw*${f(facecam.x)}:y=ih*${f(facecam.y)},scale=${W}:${top}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${top}[cam]`,
       `[gamesrc]crop=w='min(iw,ih*${W}/${bottom})':h='min(ih,iw*${bottom}/${W})',scale=${W}:${bottom}:flags=lanczos[game]`,
-      `[cam][game]vstack=inputs=2,setsar=1,fps=${FPS}${captions},format=yuv420p[v]`,
+      `[cam][game]vstack=inputs=2,drawbox=x=0:y=${top - DIVIDER / 2}:w=${W}:h=${DIVIDER}:color=white@0.95:t=fill,setsar=1,fps=${FPS}${captions},format=yuv420p[v]`,
+    ].join(';');
+  }
+  if (mode === 'GAMEPLAY' && facecam) {
+    // Game centre-cropped to fill 9:16; the webcam (with a neon border) sits in the top-left,
+    // below the hook box and clear of the Shorts UI.
+    const f = (n: number) => n.toFixed(4);
+    const camW = 420;
+    return [
+      '[0:v]split=2[camsrc][gamesrc]',
+      `[gamesrc]crop=w='min(iw,ih*9/16)':h='min(ih,iw*16/9)',scale=${W}:${H}:flags=lanczos[game]`,
+      `[camsrc]crop=w=iw*${f(facecam.w)}:h=ih*${f(facecam.h)}:x=iw*${f(facecam.x)}:y=ih*${f(facecam.y)},scale=${camW}:-2:flags=lanczos,pad=iw+12:ih+12:6:6:color=0x22F0FF[cam]`,
+      `[game][cam]overlay=40:470,setsar=1,fps=${FPS}${captions},format=yuv420p[v]`,
     ].join(';');
   }
   if (mode === 'BLUR_FIT') {
@@ -128,7 +157,7 @@ export async function renderShort(spec: RenderSpec, onProgress?: (fraction: numb
       '-ss', spec.startSeconds.toFixed(3),
       '-i', spec.sourcePath,
       '-t', duration.toFixed(3),
-      '-filter_complex', videoFilter(spec.mode, spec.captionsPath, spec.facecam),
+      '-filter_complex', videoFilter(spec.mode, spec.captionsPath, spec.facecam, spec.fontsDir),
       '-map', '[v]',
       '-map', '0:a:0?',
       '-af', audioFilter,

@@ -15,6 +15,8 @@ export interface MetadataRequest {
   transcriptExcerpt: string;
   durationSeconds: number;
   language: string;
+  /** Game hashtags always added (people search for the game, not "gaming"). */
+  game?: { name: string; hashtags: string[] } | null;
 }
 
 export interface ShortMetadata {
@@ -43,6 +45,7 @@ function prompt(r: MetadataRequest): string {
   return [
     `Streamer: ${r.streamerName}`,
     `Stream title: ${r.streamTitle || 'Untitled'}`,
+    ...(r.game ? [`Game: ${r.game.name} (name it in the title when the clip is about the game)`] : []),
     `Clip length: ${Math.round(r.durationSeconds)}s`,
     `Topic: ${r.topic ?? '-'}`,
     `Why it was picked: ${r.reason || '-'}`,
@@ -64,7 +67,11 @@ const tagify = (s: string) => s.replace(/^#/, '').replace(/[^\p{L}\p{N}_]/gu, ''
  * line pointing at the original stream, and #Shorts.
  */
 export function finalizeMetadata(raw: { title: string; description: string; hashtags: string[]; tags: string[] }, req: MetadataRequest): ShortMetadata {
-  const hashtags = [...new Set(['Shorts', ...raw.hashtags.map(tagify).filter(Boolean)])].slice(0, 5);
+  const gameTags = (req.game?.hashtags ?? []).slice(0, 3);
+  const seenTag = new Set<string>();
+  const hashtags = ['Shorts', ...gameTags, ...raw.hashtags.map(tagify).filter(Boolean)]
+    .filter((h) => !seenTag.has(h.toLowerCase()) && seenTag.add(h.toLowerCase()))
+    .slice(0, 6);
   let title = clean(raw.title).replace(/^["']|["']$/g, '') || clean(req.hook) || `${req.streamerName} stream highlight`;
   if (title.length > 90) title = `${title.slice(0, 89).trimEnd()}…`;
   const description = [

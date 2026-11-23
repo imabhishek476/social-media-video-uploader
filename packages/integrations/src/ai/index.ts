@@ -1,18 +1,23 @@
 import type { AppConfig } from '@shorts/config';
 import { GeminiHighlightAnalyzer } from './gemini';
 import { ClaudeHighlightAnalyzer } from './highlights';
+import { LocalParakeetTranscriptionProvider } from './local-transcription';
 import { OpenAiCompatibleTranscriptionProvider } from './transcription';
+export { LocalParakeetTranscriptionProvider } from './local-transcription';
 import type { HighlightAnalyzer, TranscriptionProvider } from './types';
 
 export * from './types';
 export * from './signals';
+export * from './games';
 export { ClaudeHighlightAnalyzer, buildTranscriptBlock, buildHighlightPrompt } from './highlights';
 export { GeminiHighlightAnalyzer } from './gemini';
 export { OpenAiCompatibleTranscriptionProvider, retryAfterMs, wordsWithin } from './transcription';
 
 export function createTranscriptionProvider(config: AppConfig): TranscriptionProvider {
   const t = config.integrations.transcription;
-  return new OpenAiCompatibleTranscriptionProvider({ apiKey: t.apiKey!, baseUrl: t.baseUrl, model: t.model, costPerMinuteUsd: t.costPerMinuteUsd });
+  const remote = t.apiKey ? new OpenAiCompatibleTranscriptionProvider({ apiKey: t.apiKey, baseUrl: t.baseUrl, model: t.model, costPerMinuteUsd: t.costPerMinuteUsd }) : undefined;
+  if (t.provider === 'local') return new LocalParakeetTranscriptionProvider({ modelDir: t.localModelDir, threads: t.localThreads, fallback: remote });
+  return remote!;
 }
 
 export function createHighlightAnalyzer(config: AppConfig): HighlightAnalyzer {

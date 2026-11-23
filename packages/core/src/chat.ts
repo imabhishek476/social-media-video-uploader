@@ -73,15 +73,23 @@ export class ChatSampler {
     }
     const page = await this.deps.chat.listChatMessages(liveChatId, act.pageToken);
     const counts: number[] = [...(act.counts ?? [])];
+    const unique: number[] = [...(act.uniqueCounts ?? [])];
+    const people = new Map<number, Set<string>>();
     const bucketMs = (act.bucketSeconds ?? CHAT_BUCKET_SECONDS) * 1000;
     const anchor = new Date(act.anchorAt).getTime();
     let added = 0;
-    for (const t of page.messageTimes) {
+    for (const [n, t] of page.messageTimes.entries()) {
       const i = Math.floor((t.getTime() - anchor) / bucketMs);
       if (i < 0 || i > 200_000) continue;
       while (counts.length <= i) counts.push(0);
       counts[i] = (counts[i] ?? 0) + 1;
+      const who = page.authors?.[n];
+      if (who) people.set(i, (people.get(i) ?? new Set()).add(who));
       added++;
+    }
+    for (const [i, set] of people) {
+      while (unique.length <= i) unique.push(0);
+      unique[i] = (unique[i] ?? 0) + set.size;
     }
     const waitMs = Math.max(pollSeconds * 1000, page.pollingIntervalMs);
     await ChatActivityModel.updateOne(
@@ -91,6 +99,7 @@ export class ChatSampler {
           liveChatId,
           pageToken: page.nextPageToken ?? act.pageToken,
           counts,
+          uniqueCounts: unique,
           lastPolledAt: now,
           lastError: null,
           nextPollAt: new Date(now.getTime() + waitMs),
@@ -105,6 +114,9 @@ export class ChatSampler {
 
 /** Chat counts for analysis, or [] when too little chat was captured to mean anything. */
 export async function loadChatCounts(sessionId: string, minMessages = 50): Promise<number[]> {
-  const act = await ChatActivityModel.findOne({ liveSessionId: sessionId }).select('counts messageCount').lean();
-  return act && act.messageCount >= minMessages ? (act.counts as number[]) : [];
+  const act = await ChatActivityModel.findOne({ liveSessionId: sessionId }).select('counts uniqueCounts messageCount').lean();
+  if (!act || act.messageCount < minMessages) return [];
+  // Prefer people over messages when author ids were captured.
+  const unique = (act.uniqueCounts ?? []) as number[];
+  return unique.some((n) => n > 0) ? unique : (act.counts as number[]);
 }

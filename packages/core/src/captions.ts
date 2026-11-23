@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import type { TranscriptSegment } from '@shorts/integrations';
 
 export interface CaptionStyle {
@@ -6,7 +7,48 @@ export interface CaptionStyle {
   primaryColor: string; // #RRGGBB
   highlightColor: string; // #RRGGBB
   position: 'BOTTOM' | 'MIDDLE' | 'TOP';
+  /** Words shown at once (short-form: 2-4). */
+  maxWords?: number;
+  /** Scale (%) of the word being spoken; 100 = no pop. */
+  popScale?: number;
+  uppercase?: boolean;
+  /** Vertical centre (px of 1920) for the caption line; overrides `position` (used by split layouts). */
+  anchorY?: number | null;
+  /** Soft coloured glow around the words instead of a hard outline. */
+  glow?: boolean;
 }
+
+export type CaptionPreset = 'STREAMER' | 'HYPE' | 'BOUNCE' | 'CLEAN' | 'CUSTOM';
+
+/**
+ * Ready-made caption looks (fonts bundled in packages/core/fonts, SIL OFL):
+ * HYPE: huge condensed Anton, 2 words, red; BOUNCE: Poppins ExtraBold, 3 words,
+ * cyan; CLEAN: smaller Poppins, 4 words, normal case. CUSTOM uses Settings as is.
+ */
+export function presetStyle(preset: CaptionPreset, base: CaptionStyle): CaptionStyle {
+  switch (preset) {
+    case 'STREAMER':
+      // Clip-channel look: medium bold caps, white with a soft glow, spoken word in yellow.
+      return { ...base, fontFamily: 'Poppins ExtraBold', fontSize: 92, primaryColor: '#FFFFFF', highlightColor: '#FFE14D', maxWords: 3, popScale: 104, uppercase: true, glow: true };
+    case 'HYPE':
+      return { ...base, fontFamily: 'Anton', fontSize: 150, primaryColor: '#FFFFFF', highlightColor: '#FF3B3B', maxWords: 2, popScale: 114, uppercase: true };
+    case 'BOUNCE':
+      return { ...base, fontFamily: 'Poppins ExtraBold', fontSize: 128, primaryColor: '#FFFFFF', highlightColor: '#22F0FF', maxWords: 3, popScale: 112, uppercase: true };
+    case 'CLEAN':
+      return { ...base, fontFamily: 'Poppins ExtraBold', fontSize: 96, primaryColor: '#FFFFFF', highlightColor: '#9FD4FF', maxWords: 4, popScale: 106, uppercase: false };
+    default:
+      return { maxWords: MAX_WORDS, popScale: 100, uppercase: true, ...base };
+  }
+}
+
+export interface HookOverlay {
+  text: string;
+  /** INTRO = first seconds only; ALWAYS = whole clip. */
+  mode: 'INTRO' | 'ALWAYS';
+}
+
+/** Fonts bundled with the renderer (passed to libass as fontsdir). */
+export const FONTS_DIR = fileURLToPath(new URL('../fonts', import.meta.url));
 
 interface TimedWord {
   text: string;
@@ -73,13 +115,13 @@ export function wordsFromSegments(segments: TranscriptSegment[], clipStart: numb
 }
 
 /** Group words into short caption lines, breaking at punctuation and pauses. */
-function chunk(words: TimedWord[]): TimedWord[][] {
+function chunk(words: TimedWord[], maxWords = MAX_WORDS): TimedWord[][] {
   const lines: TimedWord[][] = [];
   let cur: TimedWord[] = [];
   for (const w of words) {
     const len = cur.reduce((n, x) => n + x.text.length + 1, 0) + w.text.length;
     const gap = cur.length ? w.start - cur[cur.length - 1]!.end : 0;
-    if (cur.length && (cur.length >= MAX_WORDS || len > MAX_CHARS || gap > 0.6)) {
+    if (cur.length && (cur.length >= maxWords || len > Math.max(MAX_CHARS, maxWords * 6) || gap > 0.6)) {
       lines.push(cur);
       cur = [];
     }
@@ -98,9 +140,12 @@ function chunk(words: TimedWord[]): TimedWord[][] {
  * (times relative to the clip start). Each word lights up in the highlight
  * colour while it is spoken.
  */
-export function buildAssCaptions(segments: TranscriptSegment[], clipStart: number, clipEnd: number, style: CaptionStyle): string {
+export function buildAssCaptions(segments: TranscriptSegment[], clipStart: number, clipEnd: number, style: CaptionStyle, hook?: HookOverlay | null): string {
   // Keep captions clear of the YouTube Shorts UI at the top and bottom.
-  const [alignment, marginV] = style.position === 'TOP' ? [8, 260] : style.position === 'BOTTOM' ? [2, 420] : [5, 0];
+  const [alignment, marginV] = style.anchorY ? [5, 0] : style.position === 'TOP' ? [8, 260] : style.position === 'BOTTOM' ? [2, 420] : [5, 0];
+  const place = style.anchorY ? `{\\pos(${WIDTH / 2},${Math.round(style.anchorY)})}` : '';
+  const glowTags = style.glow ? `{\\3c&H00F0E6A0&\\3a&H60&\\blur5}` : '';
+  const outline = style.glow ? Math.max(4, Math.round(style.fontSize / 11)) : Math.max(3, Math.round(style.fontSize / 12));
   const primary = assColor(style.primaryColor);
   const highlight = assColor(style.highlightColor);
   const header = [
@@ -113,20 +158,52 @@ export function buildAssCaptions(segments: TranscriptSegment[], clipStart: numbe
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Caption,${style.fontFamily},${style.fontSize},${primary},${highlight},&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${Math.max(3, Math.round(style.fontSize / 12))},2,${alignment},80,80,${marginV},1`,
+    `Style: Caption,${style.fontFamily},${style.fontSize},${primary},${highlight},&H00000000,&H80000000,-1,0,0,0,100,100,${style.glow ? 2 : 0},0,1,${outline},${style.glow ? 0 : 2},${alignment},80,80,${marginV},1`,
+    // Hook: dark text on a white box at the top, clear of the Shorts UI.
+    `Style: Hook,Poppins ExtraBold,76,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,18,0,8,90,90,${style.position === 'TOP' ? 620 : 250},1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ];
   const events: string[] = [];
-  for (const line of chunk(wordsFromSegments(segments, clipStart, clipEnd))) {
+  const up = (t: string) => (style.uppercase === false ? t : t.toUpperCase());
+  const pop = style.popScale && style.popScale !== 100 ? style.popScale : null;
+  for (const line of chunk(wordsFromSegments(segments, clipStart, clipEnd), style.maxWords)) {
     line.forEach((w, i) => {
       // Each word's event lasts until the next word starts, so the line never flickers.
       const end = i < line.length - 1 ? line[i + 1]!.start : w.end;
       if (end - w.start < 0.02) return;
-      const text = line.map((x, j) => (j === i ? `{\\c${highlight}}${x.text.toUpperCase()}{\\c${primary}}` : x.text.toUpperCase())).join(' ');
-      events.push(`Dialogue: 0,${assTime(w.start)},${assTime(end)},Caption,,0,0,0,,${text}`);
+      // The spoken word lights up and "pops" (scales up, then settles slightly larger).
+      const hiGlow = style.glow ? `\\3c${highlight}` : '';
+      const loGlow = style.glow ? `\\3c&H00F0E6A0&` : '';
+      const on = pop ? `{\\c${highlight}${hiGlow}\\fscx${pop + 8}\\fscy${pop + 8}\\t(0,120,\\fscx${pop}\\fscy${pop})}` : `{\\c${highlight}${hiGlow}}`;
+      const off = pop ? `{\\c${primary}${loGlow}\\fscx100\\fscy100}` : `{\\c${primary}${loGlow}}`;
+      const text = line.map((x, j) => (j === i ? `${on}${up(x.text)}${off}` : up(x.text))).join(' ');
+      events.push(`Dialogue: 0,${assTime(w.start)},${assTime(end)},Caption,,0,0,0,,${place}${glowTags}${text}`);
     });
   }
+  const hookText = hook ? hookLines(hook.text) : '';
+  if (hookText) {
+    const until = hook!.mode === 'ALWAYS' ? clipEnd - clipStart : Math.min(4, clipEnd - clipStart);
+    events.unshift(`Dialogue: 1,${assTime(0)},${assTime(until)},Hook,,0,0,0,,{\\fad(150,200)}${hookText}`);
+  }
   return [...header, ...events, ''].join('\n');
+}
+
+/** Upper-case hook, at most ~6 words, wrapped onto two balanced lines. */
+export function hookLines(text: string): string {
+  const words = assText(text).replace(/["“”]/g, '').toUpperCase().split(' ').filter(Boolean).slice(0, 7);
+  if (!words.length) return '';
+  const joined = words.join(' ');
+  if (joined.length <= 16) return joined;
+  let best = 1;
+  let bestDiff = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const d = Math.abs(words.slice(0, i).join(' ').length - words.slice(i).join(' ').length);
+    if (d < bestDiff) {
+      bestDiff = d;
+      best = i;
+    }
+  }
+  return `${words.slice(0, best).join(' ')}\\N${words.slice(best).join(' ')}`;
 }

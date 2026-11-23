@@ -44,6 +44,8 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       primaryColor: '#FFFFFF',
       highlightColor: '#FFD400',
       position: SubtitlePosition.MIDDLE,
+      captionStyle: 'STREAMER',
+      hookOverlay: 'ALWAYS',
     },
     publishing: {
       mode: PublishingMode.MANUAL_APPROVAL,

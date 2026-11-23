@@ -128,19 +128,24 @@ export class YouTubeDataApiProvider implements YouTubeMetadataProvider, LiveChat
 
   async listChatMessages(liveChatId: string, pageToken: string | null): Promise<LiveChatPage> {
     try {
-      const res = await this.api<{ nextPageToken?: string; pollingIntervalMillis?: number; offlineAt?: string; items?: Array<{ snippet?: { publishedAt?: string } }> }>(
+      const res = await this.api<{ nextPageToken?: string; pollingIntervalMillis?: number; offlineAt?: string; items?: Array<{ snippet?: { publishedAt?: string; authorChannelId?: string } }> }>(
         'liveChat/messages',
         {
           liveChatId,
           part: 'snippet',
           maxResults: '2000',
-          fields: 'nextPageToken,pollingIntervalMillis,offlineAt,items(snippet(publishedAt))',
+          fields: 'nextPageToken,pollingIntervalMillis,offlineAt,items(snippet(publishedAt,authorChannelId))',
           ...(pageToken ? { pageToken } : {}),
         },
         COST.liveChat,
       );
+      const valid = (res.items ?? []).filter((i) => {
+        const d = toDate(i.snippet?.publishedAt);
+        return d !== null && !Number.isNaN(d.getTime());
+      });
       return {
-        messageTimes: (res.items ?? []).map((i) => toDate(i.snippet?.publishedAt)).filter((d): d is Date => d !== null && !Number.isNaN(d.getTime())),
+        messageTimes: valid.map((i) => toDate(i.snippet!.publishedAt)!),
+        authors: valid.map((i) => i.snippet?.authorChannelId ?? null),
         nextPageToken: res.nextPageToken ?? null,
         pollingIntervalMs: res.pollingIntervalMillis ?? 5000,
         ended: Boolean(res.offlineAt),

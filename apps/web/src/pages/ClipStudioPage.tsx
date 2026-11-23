@@ -28,6 +28,7 @@ import { FacecamOverlay } from '../components/FacecamOverlay';
 import { CandidateCard, type RenderState } from '../components/CandidateCard';
 import { PageHeader } from '../components/PageHeader';
 import { PublishPanel } from '../components/PublishPanel';
+import { RegenerateShortsButton } from '../components/RegenerateShortsButton';
 import { StatusChip } from '../components/StatusChip';
 import { formatBytes, formatClock, formatDateTime, formatUsd } from '../lib/format';
 
@@ -64,7 +65,8 @@ export function ClipStudioPage() {
   const [editFacecam, setEditFacecam] = useState(false);
   const settings = useSettings();
   const setFacecam = useSetFacecam();
-  const splitLayout = settings.data?.clips.reframingMode === 'FACECAM_SPLIT';
+  const layoutMode = session.data?.reframingMode ?? settings.data?.clips.reframingMode ?? 'CENTER_CROP';
+  const splitLayout = layoutMode === 'FACECAM_SPLIT' || layoutMode === 'GAMEPLAY';
   const [playhead, setPlayhead] = useState(0);
   const video = useRef<HTMLVideoElement>(null);
   const stopAt = useRef<number | null>(null);
@@ -384,6 +386,14 @@ export function ClipStudioPage() {
                       </Button>
                     </span>
                   </Tooltip>
+                )}
+                {canEdit && sessionId && clips.data && clips.data.length > 0 && (
+                  <RegenerateShortsButton
+                    sessionId={sessionId}
+                    currentMode={layoutMode}
+                    unpublished={clips.data.filter((c) => c.uploadStatus === 'NOT_UPLOADED' && c.instagram.status !== 'PUBLISHED').length}
+                    disabled={renderingNow || anyRendering || renderJob.isPending}
+                  />
                 )}
               </Stack>
               {renderJob.isError && (

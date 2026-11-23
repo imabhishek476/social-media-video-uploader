@@ -69,6 +69,8 @@ export interface HighlightRequest {
   loudness: number[];
   /** Live-chat messages per 10 s bucket (index × 10 = second); empty when chat wasn't sampled. */
   chat?: number[];
+  /** Game being played, when known (from the streamer's setting or the stream title). */
+  game?: { name: string; hashtags: string[] } | null;
   clip: { minSeconds: number; maxSeconds: number; targetSeconds: number };
   maxCandidates: number;
 }

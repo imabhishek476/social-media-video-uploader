@@ -245,3 +245,36 @@ describe('retryAfterMs', () => {
     expect(retryAfterMs(null, 'nope')).toBeNull();
   });
 });
+
+describe('games, clip requests and local transcription routing', () => {
+  it('detects the game from a setting or title and adds its hashtags', async () => {
+    const { detectGame, finalizeMetadata } = await import('../src');
+    expect(detectGame(null, 'BEATING GTA 6 RIGHT NOW 100%')?.name).toBe('Grand Theft Auto VI');
+    expect(detectGame('BGMI', 'GTA 5 later')?.name).toBe('BGMI');
+    expect(detectGame('GTA 5 RP with friends')?.name).toBe('GTA RP');
+    expect(detectGame('just chatting')).toBeNull();
+    const m = finalizeMetadata(
+      { title: 'x', description: 'd', hashtags: ['gta6', 'funny'], tags: [] },
+      { streamerName: 'S', streamTitle: '', sourceUrl: 'u', hook: '', reason: '', topic: null, transcriptExcerpt: '', durationSeconds: 30, language: 'en', game: detectGame('GTA 6') },
+    );
+    expect(m.description.split('\n').pop()).toBe('#Shorts #GTA6 #GTAVI #ViceCity #funny');
+  });
+
+  it('tags clip requests in the transcript', async () => {
+    const { buildTranscriptBlock } = await import('../src');
+    const block = buildTranscriptBlock({ segments: [{ startSeconds: 5, endSeconds: 7, text: 'chat clip that right now' }], loudness: [] } as never);
+    expect(block).toContain('(CLIP REQUEST)');
+  });
+
+  it('sends non-English audio to the fallback and needs the model for English', async () => {
+    const { LocalParakeetTranscriptionProvider } = await import('../src');
+    const calls: string[] = [];
+    const fallback = { name: 'groq', maxFileBytes: 1, costPerMinuteUsd: 0, transcribe: async (_p: string, o: { language?: string }) => (calls.push(o.language ?? ''), { language: 'hi', segments: [] }) };
+    const p = new LocalParakeetTranscriptionProvider({ modelDir: '/nonexistent', threads: 1, fallback });
+    expect(await p.transcribe('/x.mp3', { language: 'hi', durationSeconds: 10 })).toMatchObject({ language: 'hi' });
+    await p.transcribe('/x.mp3', { language: 'en', durationSeconds: 10 }); // model missing → fallback
+    expect(calls).toEqual(['hi', 'en']);
+    const noFallback = new LocalParakeetTranscriptionProvider({ modelDir: '/nonexistent', threads: 1 });
+    await expect(noFallback.transcribe('/x.mp3', { language: 'en', durationSeconds: 10 })).rejects.toThrow(/Speech model not found/);
+  });
+});
