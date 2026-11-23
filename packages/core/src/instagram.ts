@@ -221,7 +221,18 @@ export class InstagramPublishService {
         const video = path.join(work, 'reel.mp4');
         await this.deps.storage.download(clip.storageKey, video);
         await ctx.onProgress?.(20);
-        await client.uploadVideo(token, containerId, video);
+        try {
+          await client.uploadVideo(token, containerId, video);
+        } catch (err) {
+          // Meta sometimes rejects a retry because the first attempt actually arrived.
+          // If the container is processing or ready, carry on; otherwise start over next time.
+          const st = await client.containerStatus(token, containerId).catch(() => null);
+          if (!st || (st.status !== 'IN_PROGRESS' && st.status !== 'FINISHED')) {
+            await set({ containerId: null, uploaded: false });
+            throw err;
+          }
+          logger?.warn({ clipId, containerId, status: st.status }, 'Instagram upload reported an error but the container has the video; continuing');
+        }
         await set({ uploaded: true });
         await ctx.onProgress?.(60);
       }

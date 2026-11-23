@@ -140,7 +140,10 @@ export class InstagramGraphClient {
       }
       // rupload reports errors as { debug_info: { type, message } }.
       const b = (await res.json().catch(() => ({}))) as GraphError & { debug_info?: { type?: string; message?: string } };
-      const flaky = res.status >= 500 || b.debug_info?.type === 'ProcessingFailedError';
+      // "not in the status to upload" = the container already has the video (an earlier
+      // attempt got through despite the error), so retrying the upload can't help.
+      const alreadyHasVideo = /not in the status to upload/i.test(b.debug_info?.message ?? '');
+      const flaky = !alreadyHasVideo && (res.status >= 500 || b.debug_info?.type === 'ProcessingFailedError');
       if (flaky && attempt < waits.length) {
         await new Promise((r) => setTimeout(r, waits[attempt]));
         continue;
