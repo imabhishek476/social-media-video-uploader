@@ -61,6 +61,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       slotTimes: '12:30, 15:30, 18:00, 21:00',
       skipDays: '',
       maxPerSourcePerDay: 2,
+      dayGap: 0,
       descriptionFooter: '🏄 Jumbo Surfer: daily gaming stream highlights\n🔔 Subscribe for new Shorts every day',
       channelHashtags: 'jumbosurfer, gaming, streamhighlights',
     },

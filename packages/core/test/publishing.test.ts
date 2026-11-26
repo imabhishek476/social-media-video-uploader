@@ -188,6 +188,18 @@ describe('scheduled publishing', () => {
     expect(localDay(c, IST)).toBe('2026-11-27');
   });
 
+  it('leaves dayGap empty days between posting days', () => {
+    const now = new Date('2026-11-26T02:00:00Z'); // Thu 07:30 IST
+    const one: Array<[number, number]> = [[18, 0]];
+    const a = planSlot({ now, timeZone: IST, slots: one, skipDays: [], taken: [], sameSource: [], maxPerSourcePerDay: 0, dayGap: 2 })!;
+    const b = planSlot({ now, timeZone: IST, slots: one, skipDays: [], taken: [a], sameSource: [], maxPerSourcePerDay: 0, dayGap: 2 })!;
+    expect(localDay(a, IST)).toBe('2026-11-26');
+    expect(localDay(b, IST)).toBe('2026-11-29'); // two empty days in between
+    // A posting day keeps filling its other slots.
+    const c = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [a], sameSource: [], maxPerSourcePerDay: 0, dayGap: 2 })!;
+    expect(localDay(c, IST)).toBe('2026-11-26');
+  });
+
   it('learns best hours only with enough data', () => {
     const at = (h: number) => new Date(Date.UTC(2026, 10, 1, h, 0)); // UTC hours
     const rows = [...Array(12)].flatMap((_, i) => [{ at: at(13), views: 900 + i }, { at: at(3), views: 100 }, { at: at(16), views: 500 }]);

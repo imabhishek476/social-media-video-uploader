@@ -195,7 +195,7 @@ Shorts can go public at good times instead of the moment they upload.
   - `BEST_TIME` (default): the hours when this channel's Shorts got the most views (last 60 days; needs about 30 Shorts with views, at least 3 per hour). Until then the **Slot times** are used.
   - `FIXED_SLOTS`: exactly the **Slot times**, e.g. `12:30, 15:30, 18:00, 21:00`, in the **Time zone**.
   - `IMMEDIATE`: public as soon as uploaded (the old behaviour, with the publish window, daily limit and gap).
-- **Days without posts** (e.g. `Sun`) and **Max per stream per day** (spreads one stream's Shorts over several days).
+- **Gap between posting days** (0 = daily, 1 = every other day…), **Days without posts** (e.g. `Sun`) and **Max per stream per day** (spreads one stream's Shorts over several days).
 - Scheduling needs **Default privacy = public**. With private or unlisted, Shorts upload as before.
 
 How it works:

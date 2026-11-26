@@ -1,5 +1,5 @@
 import { GeneratedClipModel, LiveSessionModel, StreamerChannelModel, mongoose } from '@shorts/database';
-import { setVideoSchedule } from '@shorts/integrations';
+import { YouTubePublishError, setVideoSchedule } from '@shorts/integrations';
 import type { Logger } from '@shorts/observability';
 import { UploadStatus, type ScheduleDTO } from '@shorts/shared-types';
 import { DomainError } from './errors';
@@ -74,6 +74,7 @@ export class ScheduleService {
       taken: upcoming.map((c) => c.goLiveAt!),
       sameSource: upcoming.filter((c) => String(c.liveSessionId) === String(clip.liveSessionId)).map((c) => c.goLiveAt!),
       maxPerSourcePerDay: publishing.maxPerSourcePerDay,
+      dayGap: publishing.dayGap,
     });
     await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { goLiveAt: at } });
     return at;
@@ -122,7 +123,7 @@ export class ScheduleService {
     const clip = await this.load(clipId);
     if (clip.youtubeVideoId) {
       if (clip.publishedAt && clip.publishedAt <= this.now()) throw new DomainError('ALREADY_PUBLIC', 'This Short is already public on YouTube', 409);
-      await setVideoSchedule(clip.youtubeVideoId, at, await this.token());
+      await this.updateOnYouTube(clip.youtubeVideoId, at);
       await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { goLiveAt: at, publishedAt: at } });
     } else {
       await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { goLiveAt: at } });
@@ -135,9 +136,25 @@ export class ScheduleService {
     const now = this.now();
     if (clip.youtubeVideoId) {
       if (clip.publishedAt && clip.publishedAt <= now) return;
-      await setVideoSchedule(clip.youtubeVideoId, null, await this.token());
+      await this.updateOnYouTube(clip.youtubeVideoId, null);
     }
     await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { goLiveAt: now, ...(clip.youtubeVideoId ? { publishedAt: now } : {}) } });
+  }
+
+  private async updateOnYouTube(videoId: string, at: Date | null) {
+    try {
+      await setVideoSchedule(videoId, at, await this.token());
+    } catch (err) {
+      if (err instanceof YouTubePublishError && err.code === 'RECONNECT') {
+        throw new DomainError(
+          'YOUTUBE_PERMISSION_MISSING',
+          'YouTube did not allow changing this video. Reconnect the channel in Settings → YouTube and allow managing your videos, then try again.',
+          409,
+        );
+      }
+      if (err instanceof YouTubePublishError) throw new DomainError('YOUTUBE_ERROR', err.message, 502);
+      throw err;
+    }
   }
 
   private async token() {

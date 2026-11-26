@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 
 /** Scopes for uploading to, and identifying, the central channel. */
-export const YOUTUBE_SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly'];
+/** upload + read, plus `youtube` (manage videos) so scheduled Shorts can be moved or published early. */
+export const YOUTUBE_SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/youtube'];
 
 export class YouTubePublishError extends Error {
   constructor(

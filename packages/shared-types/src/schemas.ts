@@ -77,6 +77,8 @@ export const appSettingsSchema = z.object({
     skipDays: z.string().trim().max(40).regex(/^\s*((mon|tue|wed|thu|fri|sat|sun)\s*(,\s*|$))*$/i, 'Use day names like Sat, Sun'),
     /** At most this many Shorts from the same stream/video per day (spreads them out). 0 = no limit. */
     maxPerSourcePerDay: z.number().int().min(0).max(20),
+    /** Empty days between posting days: 0 = post every day, 1 = every other day, 2 = every third day… */
+    dayGap: z.number().int().min(0).max(30),
     /** Channel branding added to every new Short's description (above the hashtags). */
     descriptionFooter: z.string().max(1000),
     /** Channel hashtags added to every new Short (comma or space separated, without #). */

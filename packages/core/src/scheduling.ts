@@ -120,6 +120,8 @@ export interface SlotPlanInput {
   /** Slots of Shorts from the same stream/video. */
   sameSource: Date[];
   maxPerSourcePerDay: number;
+  /** Empty days between posting days (0 = every day). A day that already has posts can take more. */
+  dayGap?: number;
   /** Don't pick a slot sooner than this (time to upload and process). */
   minLeadMinutes?: number;
   maxDays?: number;
@@ -136,12 +138,20 @@ export function planSlot(i: SlotPlanInput): Date | null {
   const taken = new Set(i.taken.map((d) => Math.round(d.getTime() / 60_000)));
   const perDay = new Map<string, number>();
   for (const d of i.sameSource) perDay.set(localDay(d, i.timeZone), (perDay.get(localDay(d, i.timeZone)) ?? 0) + 1);
+  const dayNumber = (d: Date) => {
+    const p = localParts(d, i.timeZone);
+    return Date.UTC(p.y, p.mo - 1, p.d) / 86_400_000;
+  };
+  const postingDays = new Set(i.taken.map(dayNumber));
+  const gap = i.dayGap ?? 0;
+  const gapOk = (n: number) => postingDays.has(n) || [...postingDays].every((p) => Math.abs(p - n) > gap);
   const today = localParts(i.now, i.timeZone);
   for (let day = 0; day < (i.maxDays ?? 60); day++) {
     // Noon of the local day avoids DST edges when stepping days.
     const noon = zonedTime(today.y, today.mo, today.d + day, 12, 0, i.timeZone);
     const p = localParts(noon, i.timeZone);
     if (i.skipDays.includes(p.wd)) continue;
+    if (gap > 0 && !gapOk(dayNumber(noon))) continue;
     if (i.maxPerSourcePerDay > 0 && (perDay.get(localDay(noon, i.timeZone)) ?? 0) >= i.maxPerSourcePerDay) continue;
     for (const [h, m] of i.slots) {
       const at = zonedTime(p.y, p.mo, p.d, h, m, i.timeZone);

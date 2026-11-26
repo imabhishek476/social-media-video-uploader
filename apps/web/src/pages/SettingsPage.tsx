@@ -106,6 +106,7 @@ const SECTIONS: Array<{ section: Section; title: string; description: string; fi
       { key: 'categoryId', label: 'YouTube category ID', kind: 'text', helper: '20 = Gaming, 24 = Entertainment' },
       { key: 'timingMode', label: 'When Shorts go public', kind: 'select', options: ['BEST_TIME', 'FIXED_SLOTS', 'IMMEDIATE'], helper: 'BEST_TIME: hours that got the most views on this channel (uses the slot times below until there are ~30 Shorts) · FIXED_SLOTS: exactly the times below · IMMEDIATE: as soon as uploaded. Scheduled Shorts upload early as private and YouTube makes them public at the slot. Needs Default privacy = public.' },
       { key: 'slotTimes', label: 'Slot times', kind: 'text', helper: '24-hour times in the time zone below, e.g. 12:30, 15:30, 18:00, 21:00 (one Short per slot)' },
+      { key: 'dayGap', label: 'Gap between posting days', kind: 'number', unit: 'days', helper: '0 = post every day · 1 = every other day · 2 = every third day. A posting day still fills all its slots.' },
       { key: 'skipDays', label: 'Days without posts', kind: 'text', helper: 'e.g. Sun, or empty for every day' },
       { key: 'maxPerSourcePerDay', label: 'Max per stream per day', kind: 'number', helper: 'Spreads one stream’s Shorts over several days. 0 = no limit' },
       { key: 'windowStartHour', label: 'Publish window start', kind: 'number', unit: 'h', helper: 'IMMEDIATE mode only: uploads start from this hour…' },
