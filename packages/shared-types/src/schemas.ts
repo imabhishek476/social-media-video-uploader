@@ -64,6 +64,8 @@ export const appSettingsSchema = z.object({
     }, 'Unknown time zone (use an IANA name like Asia/Kolkata)'),
     /** MANUAL: post to Instagram from Clip Studio only; WITH_YOUTUBE: approving a clip also queues the Reel. */
     instagramMode: z.enum(['MANUAL', 'WITH_YOUTUBE']),
+    /** When a Reel is posted: at its YouTube Short's scheduled time, or straight away. */
+    instagramTiming: z.enum(['SAME_AS_YOUTUBE', 'IMMEDIATE']),
     /**
      * When Shorts go public. IMMEDIATE: as soon as they upload. FIXED_SLOTS: at the
      * times in `slotTimes`. BEST_TIME: at the hours that worked best on this channel

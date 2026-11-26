@@ -36,7 +36,8 @@ export function SettingsPage() {
   const disconnect = useDisconnectYouTube();
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const oauthResult = params.get('youtube') === 'connected' ? { ok: true, text: `Connected ${params.get('channel') ?? 'the channel'}.` } : params.get('youtube_error') ? { ok: false, text: params.get('youtube_error')! } : null;
-  const tab = params.get('tab') ?? (oauthResult ? 'accounts' : 'publishing');
+  const rawTab = params.get('tab') ?? (oauthResult ? 'youtube' : 'publishing');
+  const tab = rawTab === 'accounts' ? 'youtube' : rawTab;
   const setTab = (id: string) => setParams({ tab: id }, { replace: true });
 
   const fromServer = () => {
@@ -98,24 +99,24 @@ export function SettingsPage() {
               <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
                 <span>{t.label}</span>
                 {changedTabs.has(t.id) && <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'warning.main' }} />}
-                {t.id === 'accounts' && yt && !yt.connected && <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'error.main' }} />}
+                {((t.connector === 'youtube' && yt && !yt.connected) || (t.connector === 'instagram' && settings.data?.instagram && !settings.data.instagram.connected)) && <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'error.main' }} />}
               </Stack>
             }
           />
         ))}
       </Tabs>
 
-      {current.id === 'accounts' ? (
+      {current.connector === 'youtube' && (
         <>
           {oauthResult && (
-            <Alert severity={oauthResult.ok ? 'success' : 'error'} sx={{ mb: 2 }} onClose={() => setParams({ tab: 'accounts' }, { replace: true })}>
+            <Alert severity={oauthResult.ok ? 'success' : 'error'} sx={{ mb: 2 }} onClose={() => setParams({ tab: 'youtube' }, { replace: true })}>
               YouTube: {oauthResult.text}
             </Alert>
           )}
-          <Card variant="outlined" sx={{ mb: 2 }}>
+          <Card variant="outlined" sx={{ mb: 2, maxWidth: 860 }}>
             <CardHeader
-              title="YouTube channel"
-              subheader="Every approved Short uploads here."
+              title="YouTube account"
+              subheader="The channel every approved Short uploads to."
               action={
                 yt && (
                   <Chip
@@ -154,9 +155,10 @@ export function SettingsPage() {
               </CardContent>
             )}
           </Card>
-          <InstagramCard ig={settings.data?.instagram} canEdit={canEdit} />
         </>
-      ) : !draft ? (
+      )}
+      {current.connector === 'instagram' && <InstagramCard ig={settings.data?.instagram} canEdit={canEdit} />}
+      {!draft ? (
         <Skeleton variant="rounded" height={400} />
       ) : (
         <Stack spacing={2} sx={{ maxWidth: 860 }}>

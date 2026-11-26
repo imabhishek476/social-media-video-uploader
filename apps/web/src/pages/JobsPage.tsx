@@ -101,7 +101,7 @@ export function JobsPage() {
               <TableCell>Related</TableCell>
               <TableCell align="right">Attempts</TableCell>
               <TableCell align="right">Progress</TableCell>
-              <TableCell>Last error</TableCell>
+              <TableCell>Note / error</TableCell>
               <TableCell>Created</TableCell>
               <TableCell>Finished</TableCell>
             </TableRow>
@@ -119,7 +119,17 @@ export function JobsPage() {
                 </TableCell>
                 <TableCell align="right">{job.progress}%</TableCell>
                 <TableCell sx={{ maxWidth: 280 }}>
-                  {job.lastError ? (
+                  {job.status === 'PENDING' && job.lastError?.startsWith('Deferred until ') ? (
+                    // Not an error: the job is waiting on purpose (publish time, quota, upload window…).
+                    <Tooltip title={job.lastError}>
+                      <Typography variant="body2" color="info.main" noWrap>
+                        {(() => {
+                          const m = job.lastError.match(/^Deferred until (\S+): (.*)$/);
+                          return m ? `Waiting until ${formatDateTime(m[1]!)}: ${m[2]}` : job.lastError;
+                        })()}
+                      </Typography>
+                    </Tooltip>
+                  ) : job.lastError ? (
                     <Tooltip title={job.lastError}>
                       <Typography variant="body2" color="error" noWrap>
                         {job.errorCode ? `[${job.errorCode}] ` : ''}

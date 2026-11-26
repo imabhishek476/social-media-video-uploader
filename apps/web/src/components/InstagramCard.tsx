@@ -23,9 +23,9 @@ export function InstagramCard({ ig, canEdit }: { ig: InstagramConnectionDTO | un
   const showForm = canEdit && (!ig.connected || editing);
 
   return (
-    <Card variant="outlined" sx={{ mb: 2 }}>
+    <Card variant="outlined" sx={{ mb: 2, maxWidth: 860 }}>
       <CardHeader
-        title="Instagram Reels"
+        title="Instagram account"
         subheader="Cross-post Shorts as Reels to your Business/Creator account."
         action={<Chip size="small" color={ig.connected ? 'success' : ig.status === 'ERROR' ? 'error' : 'default'} label={ig.connected ? 'Connected' : ig.status === 'ERROR' ? 'Needs reconnect' : 'Not connected'} />}
         slotProps={{ title: { variant: 'subtitle1', sx: { fontWeight: 600 } } }}

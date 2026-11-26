@@ -129,6 +129,21 @@ describe('Reel posting', () => {
     expect(clip!.instagram).toMatchObject({ status: 'PUBLISHED', mediaId: 'M1', containerId: 'C1' });
   });
 
+  it('waits for the YouTube time, or posts straight away when Settings say so', async () => {
+    const id = await renderedClip();
+    await account.connect('abc-long-lived-token-123456', ADMIN);
+    await GeneratedClipModel.updateOne({ _id: id }, { $set: { goLiveAt: new Date(Date.now() + 3 * 86_400_000) } });
+    await service.queue(id);
+    await settings.update({ publishing: { instagramTiming: 'SAME_AS_YOUTUBE' } }, ADMIN);
+    await expect(service.post(id, ctx)).rejects.toBeInstanceOf(Deferred);
+    expect(ig.calls).toHaveLength(0);
+
+    await settings.update({ publishing: { instagramTiming: 'IMMEDIATE' } }, ADMIN);
+    ig.statuses = ['FINISHED'];
+    expect(await service.post(id, ctx)).toMatchObject({ mediaId: 'M1' });
+    await settings.update({ publishing: { instagramTiming: 'SAME_AS_YOUTUBE' } }, ADMIN);
+  });
+
   it('defers on the publishing limit and fails permanently on bad requests', async () => {
     const id = await renderedClip();
     await account.connect('abc-long-lived-token-123456', ADMIN);

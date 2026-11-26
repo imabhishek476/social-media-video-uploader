@@ -158,7 +158,8 @@ function scheduleSummary(d: Draft): string {
 // The settings, grouped by what you're trying to do
 // ---------------------------------------------------------------------------
 
-export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
+/** Tabs; a platform tab (`connector`) shows its account connection above its settings. Add new platforms the same way. */
+export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'instagram'; groups: Group[] }> = [
   {
     id: 'publishing',
     label: 'Publishing',
@@ -175,15 +176,6 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
             width: 'full',
             options: [opt('MANUAL_APPROVAL', 'I check each Short first', 'Shorts wait in Clip Studio until you press Approve.'), opt('AUTO_PUBLISH', 'Publish automatically', 'Every new Short is approved and scheduled without you.')],
           },
-          {
-            section: 'publishing',
-            key: 'privacyStatus',
-            label: 'Who can see new Shorts on YouTube',
-            kind: 'select',
-            width: 'full',
-            options: [opt('public', 'Everyone (Public)'), opt('unlisted', 'Only people with the link (Unlisted)'), opt('private', 'Only me (Private)')],
-            helper: 'Choose Everyone to use the schedule below.',
-          },
         ],
       },
       {
@@ -191,7 +183,7 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
         description: 'When approved Shorts go public. They upload early and YouTube publishes them at the chosen time.',
         note: (d) =>
           scheduled(d) && d.publishing.privacyStatus !== 'public' ? (
-            <Alert severity="warning">The schedule is paused because new Shorts aren’t public. Set “Who can see new Shorts” to Everyone above.</Alert>
+            <Alert severity="warning">The schedule is paused because new YouTube Shorts aren’t public. In the YouTube tab, set “Who can see new Shorts” to Everyone.</Alert>
           ) : (
             <Alert severity="info" icon={false}>
               {scheduleSummary(d)}
@@ -239,9 +231,31 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
           { section: 'publishing', key: 'minMinutesBetweenUploads', label: 'Wait between Shorts', kind: 'number', unit: 'min', showIf: (d) => !scheduled(d) },
         ],
       },
+    ],
+  },
+  {
+    id: 'youtube',
+    label: 'YouTube',
+    connector: 'youtube',
+    groups: [
+      {
+        title: 'Uploads',
+        description: 'How Shorts appear on your YouTube channel.',
+        fields: [
+          {
+            section: 'publishing',
+            key: 'privacyStatus',
+            label: 'Who can see new Shorts on YouTube',
+            kind: 'select',
+            width: 'full',
+            options: [opt('public', 'Everyone (Public)'), opt('unlisted', 'Only people with the link (Unlisted)'), opt('private', 'Only me (Private)')],
+            helper: 'Choose Everyone to use the schedule in the Publishing tab.',
+          },
+        ],
+      },
       {
         title: 'Title & description',
-        description: 'Added to every new Short.',
+        description: 'Added to every new YouTube Short.',
         fields: [
           { section: 'publishing', key: 'descriptionFooter', label: 'Text at the end of every description', kind: 'text', multiline: true, width: 'full', helper: 'e.g. your channel name and a “Subscribe” line.' },
           { section: 'publishing', key: 'channelHashtags', label: 'Your hashtags', kind: 'text', helper: 'Separate with commas, no # needed' },
@@ -254,9 +268,16 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
           },
         ],
       },
+    ],
+  },
+  {
+    id: 'instagram',
+    label: 'Instagram',
+    connector: 'instagram',
+    groups: [
       {
-        title: 'Instagram',
-        description: 'Posting Shorts as Instagram Reels (connect Instagram in the Accounts tab).',
+        title: 'Posting',
+        description: 'Which Shorts are also posted as Instagram Reels.',
         fields: [
           {
             section: 'publishing',
@@ -264,7 +285,18 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
             label: 'Post to Instagram',
             kind: 'cards',
             width: 'full',
-            options: [opt('WITH_YOUTUBE', 'Every Short', 'Posted as a Reel at the same time as on YouTube.'), opt('MANUAL', 'Only when I choose', 'Use “Post to Instagram” on a Short.')],
+            options: [opt('WITH_YOUTUBE', 'Every Short', 'Every approved Short is also posted as a Reel.'), opt('MANUAL', 'Only when I choose', 'Use “Post to Instagram” on a Short.')],
+          },
+          {
+            section: 'publishing',
+            key: 'instagramTiming',
+            label: 'When to post the Reel',
+            kind: 'cards',
+            width: 'full',
+            options: [
+              opt('SAME_AS_YOUTUBE', 'Same time as YouTube', 'Waits for the Short’s scheduled YouTube time (the app posts it then; the server must be running).'),
+              opt('IMMEDIATE', 'Straight away', 'Posts the Reel as soon as the Short is approved, even if YouTube is scheduled for later.'),
+            ],
           },
         ],
       },
@@ -347,7 +379,7 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
   },
   {
     id: 'highlights',
-    label: 'Highlights & streams',
+    label: 'Highlights',
     groups: [
       {
         title: 'Choosing the best moments',
@@ -378,7 +410,7 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
   },
   {
     id: 'system',
-    label: 'Storage & costs',
+    label: 'Storage',
     groups: [
       {
         title: 'AI spending',
@@ -430,7 +462,6 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
       },
     ],
   },
-  { id: 'accounts', label: 'Accounts', groups: [] },
 ];
 
 export const ALL_FIELDS = TABS.flatMap((t) => t.groups.flatMap((g) => g.fields));

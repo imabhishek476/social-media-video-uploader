@@ -57,6 +57,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       windowEndHour: 24,
       timezone: 'UTC',
       instagramMode: 'MANUAL',
+      instagramTiming: 'SAME_AS_YOUTUBE',
       timingMode: 'BEST_TIME',
       slotTimes: '12:30, 15:30, 18:00, 21:00',
       skipDays: '',

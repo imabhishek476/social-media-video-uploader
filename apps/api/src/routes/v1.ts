@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { UserRole, facecamUpdateSchema, instagramConnectSchema, loginSchema, sessionImportSchema, settingsUpdateSchema, type HealthDTO } from '@shorts/shared-types';
+import { JobType, QUEUE_NAMES, UserRole, facecamUpdateSchema, instagramConnectSchema, loginSchema, sessionImportSchema, settingsUpdateSchema, type HealthDTO } from '@shorts/shared-types';
 import { LiveSessionModel } from '@shorts/database';
 import type { AppDeps } from '../context';
 import { AppError, ErrorCode, parseOrThrow } from '../errors';
@@ -204,7 +204,14 @@ export function createV1Router(deps: AppDeps): Router {
 
   router.patch('/settings', adminOnly, async (req, res) => {
     const patch = parseOrThrow(settingsUpdateSchema, req.body);
+    const before = (await settings.getValues()).values.publishing.instagramTiming;
     const updated = await settings.update(patch, req.user!.id);
+    // Switched to "post Reels straight away": release Reels already waiting for their YouTube time.
+    if (before !== 'IMMEDIATE' && updated.publishing.instagramTiming === 'IMMEDIATE') {
+      const queue = deps.queues.get(QUEUE_NAMES[JobType.INSTAGRAM_UPLOAD]);
+      const delayed = await queue.getDelayed();
+      await Promise.all(delayed.map((j) => j.promote().catch(() => undefined)));
+    }
     await recordAudit(req, { action: 'settings.update', entityType: 'AppSettings', metadata: { sections: Object.keys(patch) } });
     res.json(updated);
   });
