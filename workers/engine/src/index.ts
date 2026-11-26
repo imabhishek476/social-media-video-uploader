@@ -16,6 +16,7 @@ import {
   LiveSessionService,
   NotificationService,
   PublishService,
+  ScheduleService,
   budgetStatus,
   recoverStuckSessions,
   refreshVideoStats,
@@ -499,7 +500,9 @@ async function main() {
     workDir: path.join(config.worker.storageDir, 'tmp'),
     logger: logger.child({ role: 'instagram' }),
   });
+  const schedule = new ScheduleService({ settings, accessToken: () => account.accessToken(), logger: logger.child({ role: 'schedule' }) });
   const publish = new PublishService({
+    schedule,
     settings,
     queues,
     account,
@@ -514,6 +517,7 @@ async function main() {
     uploader: new GoogleYouTubeUploader(),
     workDir: path.join(config.worker.storageDir, 'tmp'),
     logger: logger.child({ role: 'upload' }),
+    schedule,
   });
   const n = config.integrations.notifications;
   const notify = new NotificationService({

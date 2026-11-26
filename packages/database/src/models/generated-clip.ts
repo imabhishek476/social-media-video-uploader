@@ -42,6 +42,8 @@ const generatedClipSchema = new Schema(
     uploadAttempts: { type: Number, default: 0 },
     resumableUploadUrl: { type: String, default: null, select: false },
     scheduledPublishAt: { type: Date, default: null },
+    /** Slot when the Short goes public (scheduled publishing); null = as soon as it uploads. */
+    goLiveAt: { type: Date, default: null, index: true },
     youtubeVideoId: { type: String, default: null },
     youtubeUrl: { type: String, default: null },
     publishedAt: { type: Date, default: null },

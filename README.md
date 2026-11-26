@@ -187,6 +187,23 @@ Set `TRANSCRIPTION_PROVIDER=local` to transcribe English with NVIDIA Parakeet (s
 - **Separate process:** speech-to-text runs in its own process, so the worker never freezes.
 - **Restarts:** jobs use short, auto-renewed locks, so a job interrupted by a restart resumes within about 2 minutes.
 
+## Scheduled publishing (Phase 8)
+
+Shorts can go public at good times instead of the moment they upload.
+
+- **Settings → Publishing → When Shorts go public**
+  - `BEST_TIME` (default): the hours when this channel's Shorts got the most views (last 60 days; needs about 30 Shorts with views, at least 3 per hour). Until then the **Slot times** are used.
+  - `FIXED_SLOTS`: exactly the **Slot times**, e.g. `12:30, 15:30, 18:00, 21:00`, in the **Time zone**.
+  - `IMMEDIATE`: public as soon as uploaded (the old behaviour, with the publish window, daily limit and gap).
+- **Days without posts** (e.g. `Sun`) and **Max per stream per day** (spreads one stream's Shorts over several days).
+- Scheduling needs **Default privacy = public**. With private or unlisted, Shorts upload as before.
+
+How it works:
+1. On approval, the Short gets the next free slot (one Short per slot, at least 20 minutes away).
+2. It uploads right away as **private with `publishAt`**, and YouTube makes it public at the slot, so a slow upload or quota pause never makes a slot late.
+3. With Instagram `WITH_YOUTUBE`, the Reel waits for the same slot.
+4. The **Schedule** page lists the next 14 days. **Move** changes the time (also on YouTube; ~50 quota units), **Publish now** makes it public immediately.
+
 ## Better Shorts: hook, caption styles, gameplay layout, games
 
 - **Hook text:** the AI writes a 2–6 word hook ("HE GOT ME", "1 VS 3") for each moment. It's drawn in a white box at the top: *Settings → Subtitles → Hook text on video* (`ALWAYS`, `INTRO` = first 4 s, `OFF`).

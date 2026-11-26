@@ -124,6 +124,8 @@ export interface VideoMetadata {
   categoryId: string;
   privacyStatus: 'private' | 'unlisted' | 'public';
   language?: string;
+  /** Go public at this time (requires privacyStatus 'private'). */
+  publishAt?: Date | null;
 }
 
 export interface UploadInput {
@@ -203,7 +205,7 @@ export class GoogleYouTubeUploader implements YouTubeUploader {
       },
       body: JSON.stringify({
         snippet: { title: m.title, description: m.description, tags: m.tags, categoryId: m.categoryId, ...(m.language ? { defaultLanguage: m.language, defaultAudioLanguage: m.language } : {}) },
-        status: { privacyStatus: m.privacyStatus, selfDeclaredMadeForKids: false, embeddable: true },
+        status: { privacyStatus: m.privacyStatus, selfDeclaredMadeForKids: false, embeddable: true, ...(m.publishAt && m.privacyStatus === 'private' ? { publishAt: m.publishAt.toISOString() } : {}) },
       }),
       signal: AbortSignal.timeout(60_000),
     }).catch((err: Error) => {
@@ -277,6 +279,25 @@ export async function fetchVideoStats(ids: string[], accessToken: string, apiBas
     comments: Number(v.statistics?.commentCount ?? 0),
     privacyStatus: v.status?.privacyStatus ?? null,
   }));
+}
+
+/**
+ * Change when an uploaded video goes public (videos.update, ~50 quota units):
+ * a future date keeps it private with `publishAt`; null makes it public now.
+ */
+export async function setVideoSchedule(videoId: string, publishAt: Date | null, accessToken: string, apiBase = 'https://www.googleapis.com/youtube/v3'): Promise<void> {
+  const status = publishAt
+    ? { privacyStatus: 'private', publishAt: publishAt.toISOString(), selfDeclaredMadeForKids: false, embeddable: true }
+    : { privacyStatus: 'public', selfDeclaredMadeForKids: false, embeddable: true };
+  const res = await fetch(`${apiBase}/videos?part=status`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: videoId, status }),
+    signal: AbortSignal.timeout(30_000),
+  }).catch((err: Error) => {
+    throw new YouTubePublishError('UNAVAILABLE', `YouTube API unreachable: ${err.message}`, true);
+  });
+  if (!res.ok) throw await googleError(res, 'YouTube videos.update');
 }
 
 export const youtubeShortUrl = (videoId: string) => `https://www.youtube.com/shorts/${videoId}`;

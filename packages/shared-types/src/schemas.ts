@@ -64,6 +64,19 @@ export const appSettingsSchema = z.object({
     }, 'Unknown time zone (use an IANA name like Asia/Kolkata)'),
     /** MANUAL: post to Instagram from Clip Studio only; WITH_YOUTUBE: approving a clip also queues the Reel. */
     instagramMode: z.enum(['MANUAL', 'WITH_YOUTUBE']),
+    /**
+     * When Shorts go public. IMMEDIATE: as soon as they upload. FIXED_SLOTS: at the
+     * times in `slotTimes`. BEST_TIME: at the hours that worked best on this channel
+     * (falls back to `slotTimes` until there is enough data). Scheduled Shorts upload
+     * early as private and YouTube makes them public at the slot.
+     */
+    timingMode: z.enum(['IMMEDIATE', 'BEST_TIME', 'FIXED_SLOTS']),
+    /** Daily slot times in `timezone`, e.g. "12:30, 18:00, 21:00". */
+    slotTimes: z.string().trim().max(200).regex(/^\s*([01]?\d|2[0-3]):[0-5]\d(\s*,\s*([01]?\d|2[0-3]):[0-5]\d)*\s*$/, 'Use 24-hour times separated by commas, e.g. 12:30, 18:00, 21:00'),
+    /** Days with no slots, e.g. "Sun" or "Sat, Sun". Empty = every day. */
+    skipDays: z.string().trim().max(40).regex(/^\s*((mon|tue|wed|thu|fri|sat|sun)\s*(,\s*|$))*$/i, 'Use day names like Sat, Sun'),
+    /** At most this many Shorts from the same stream/video per day (spreads them out). 0 = no limit. */
+    maxPerSourcePerDay: z.number().int().min(0).max(20),
     /** Channel branding added to every new Short's description (above the hashtags). */
     descriptionFooter: z.string().max(1000),
     /** Channel hashtags added to every new Short (comma or space separated, without #). */

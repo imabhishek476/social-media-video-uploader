@@ -358,6 +358,7 @@ export function toClipDTO(c: any): GeneratedClipDTO {
     tags: c.tags ?? [],
     metadataEditedByUser: Boolean(c.metadataEditedByUser),
     scheduledPublishAt: c.scheduledPublishAt ? c.scheduledPublishAt.toISOString() : null,
+    goLiveAt: c.goLiveAt ? c.goLiveAt.toISOString() : null,
     youtubeVideoId: c.youtubeVideoId ?? null,
     youtubeUrl: c.youtubeUrl ?? null,
     publishedAt: c.publishedAt ? c.publishedAt.toISOString() : null,

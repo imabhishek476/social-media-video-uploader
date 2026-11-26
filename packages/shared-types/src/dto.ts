@@ -340,6 +340,8 @@ export interface GeneratedClipDTO {
   tags: string[];
   metadataEditedByUser: boolean;
   scheduledPublishAt: string | null;
+  /** Slot when the Short goes public; in the future = uploaded/queued and waiting for it. */
+  goLiveAt: string | null;
   youtubeVideoId: string | null;
   youtubeUrl: string | null;
   publishedAt: string | null;
@@ -354,4 +356,29 @@ export interface ClipMediaDTO {
   videoUrl: string;
   thumbnailUrl: string | null;
   expiresAt: string | null;
+}
+
+// Phase 8: publish calendar
+
+export interface ScheduledShortDTO {
+  id: string;
+  liveSessionId: string;
+  title: string;
+  streamerName: string;
+  goLiveAt: string;
+  /** Uploaded to YouTube and waiting for its slot (vs. still to upload). */
+  uploaded: boolean;
+  youtubeUrl: string | null;
+  uploadStatus: string;
+  lastError: string | null;
+}
+
+export interface ScheduleDTO {
+  timingMode: 'IMMEDIATE' | 'BEST_TIME' | 'FIXED_SLOTS';
+  privacyStatus: string;
+  timezone: string;
+  /** Slot times in use ("HH:MM"), and whether they were learned from this channel's views. */
+  slots: string[];
+  slotsSource: 'learned' | 'settings';
+  items: ScheduledShortDTO[];
 }

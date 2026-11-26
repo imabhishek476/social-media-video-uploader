@@ -16,6 +16,7 @@ export * from './render';
 export * from './clips';
 export * from './publishing';
 export * from './scheduling';
+export * from './schedule';
 export * from './maintenance';
 export * from './inbox';
 export * from './chat';

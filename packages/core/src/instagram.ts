@@ -192,8 +192,13 @@ export class InstagramPublishService {
     if (!clip.storageKey) throw new UnrecoverableError('Rendered file is missing');
 
     const { publishing } = (await this.deps.settings.getValues()).values;
-    const open = nextWindowOpen(new Date(), publishing.windowStartHour, publishing.windowEndHour, publishing.timezone);
-    if (open) return await ctx.defer(open, 'Waiting for the publish window in Settings → Publishing');
+    // A scheduled Short goes to Instagram at its YouTube slot; otherwise follow the publish window.
+    if (clip.goLiveAt) {
+      if (clip.goLiveAt.getTime() > Date.now()) return await ctx.defer(clip.goLiveAt, 'Waiting for the Short\'s publish slot');
+    } else {
+      const open = nextWindowOpen(new Date(), publishing.windowStartHour, publishing.windowEndHour, publishing.timezone);
+      if (open) return await ctx.defer(open, 'Waiting for the publish window in Settings → Publishing');
+    }
 
     const set = (fields: Record<string, unknown>) =>
       GeneratedClipModel.updateOne({ _id: clipId }, { $set: Object.fromEntries(Object.entries(fields).map(([k, v]) => [`instagram.${k}`, v])) });

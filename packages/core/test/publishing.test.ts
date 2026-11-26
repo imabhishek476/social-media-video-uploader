@@ -7,7 +7,7 @@ import { GeneratedClipModel, HighlightCandidateModel, IntegrationCredentialModel
 import { LocalObjectStorage, YouTubePublishError, type YouTubeOAuthClient, type YouTubeUploader } from '@shorts/integrations';
 import { MockYouTubeUploader, TemplateMetadataGenerator } from '@shorts/integrations/testing';
 import type { QueueRegistry, Redis } from '@shorts/queue';
-import { PublishService, SettingsService, UploadService, YouTubeAccountService, languageCode } from '../src';
+import { PublishService, ScheduleService, SettingsService, UploadService, YouTubeAccountService, bestHours, languageCode, localDay, planSlot } from '../src';
 
 const MONGO_URI = process.env.TEST_MONGODB_URI ?? 'mongodb://localhost:27017/ai_shorts_core_publish_test';
 const ADMIN = String(new mongoose.Types.ObjectId());
@@ -67,7 +67,7 @@ afterAll(async () => {
 beforeEach(async () => {
   enqueued.length = 0;
   await Promise.all(Object.values(mongoose.connection.collections).map((c) => c.deleteMany({})));
-  await settings.update({ publishing: { mode: 'MANUAL_APPROVAL', dailyUploadLimit: 10, minMinutesBetweenUploads: 0 } }, ADMIN);
+  await settings.update({ publishing: { mode: 'MANUAL_APPROVAL', dailyUploadLimit: 10, minMinutesBetweenUploads: 0, privacyStatus: 'private', timingMode: 'BEST_TIME', skipDays: '', maxPerSourcePerDay: 2 } }, ADMIN);
   // A connected central channel (approval requires one).
   await IntegrationCredentialModel.create({ provider: 'youtube', accountId: 'UCcentral', encryptedRefreshToken: 'x', status: 'ACTIVE' });
 });
@@ -160,6 +160,70 @@ describe('UploadService', () => {
     // A failed upload can be retried by approving again.
     await sb.publish.approve(bad.clipId, ADMIN);
     expect((await GeneratedClipModel.findById(bad.clipId).lean())!).toMatchObject({ uploadStatus: 'QUEUED', uploadAttempts: 2 });
+  });
+});
+
+describe('scheduled publishing', () => {
+  const IST = 'Asia/Kolkata';
+  const slots: Array<[number, number]> = [[12, 30], [18, 0], [21, 0]];
+
+  it('picks the next free slot in the channel time zone, skipping taken slots and days', () => {
+    const now = new Date('2026-11-26T08:00:00Z'); // 13:30 IST, Thursday
+    const first = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [], sameSource: [], maxPerSourcePerDay: 0 });
+    expect(first!.toISOString()).toBe('2026-11-26T12:30:00.000Z'); // 18:00 IST
+    const second = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [first!], sameSource: [], maxPerSourcePerDay: 0 });
+    expect(second!.toISOString()).toBe('2026-11-26T15:30:00.000Z'); // 21:00 IST
+    // Friday skipped -> Saturday 12:30 IST
+    const third = planSlot({ now, timeZone: IST, slots, skipDays: [5], taken: [first!, second!], sameSource: [], maxPerSourcePerDay: 0 });
+    expect(third!.toISOString()).toBe('2026-11-28T07:00:00.000Z');
+  });
+
+  it('spreads one stream over days with maxPerSourcePerDay', () => {
+    const now = new Date('2026-11-26T02:00:00Z'); // 07:30 IST
+    const a = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [], sameSource: [], maxPerSourcePerDay: 2 })!;
+    const b = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [a], sameSource: [a], maxPerSourcePerDay: 2 })!;
+    const c = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [a, b], sameSource: [a, b], maxPerSourcePerDay: 2 })!;
+    expect(localDay(a, IST)).toBe('2026-11-26');
+    expect(localDay(b, IST)).toBe('2026-11-26');
+    expect(localDay(c, IST)).toBe('2026-11-27');
+  });
+
+  it('learns best hours only with enough data', () => {
+    const at = (h: number) => new Date(Date.UTC(2026, 10, 1, h, 0)); // UTC hours
+    const rows = [...Array(12)].flatMap((_, i) => [{ at: at(13), views: 900 + i }, { at: at(3), views: 100 }, { at: at(16), views: 500 }]);
+    expect(bestHours(rows.slice(0, 10), 'UTC', 2)).toBeNull();
+    expect(bestHours(rows, 'UTC', 2)).toEqual([[13, 0], [16, 0]]);
+  });
+
+  it('approval assigns a slot; the upload goes up early as private with publishAt', async () => {
+    await settings.update({ publishing: { privacyStatus: 'public', timingMode: 'FIXED_SLOTS', slotTimes: '00:00, 06:00, 12:00, 18:00', timezone: 'UTC' } }, ADMIN);
+    const uploader = new MockYouTubeUploader();
+    const account = new YouTubeAccountService({ oauth: null, redis: fakeRedis() });
+    const schedule = new ScheduleService({ settings });
+    const publish = new PublishService({ settings, queues, account, metadata: new TemplateMetadataGenerator(), schedule });
+    const upload = new UploadService({ settings, storage, account, uploader, workDir: path.join(root, 'work'), schedule });
+    const { clipId } = await renderedClip('Scheduled');
+    await publish.approve(clipId, ADMIN);
+    const slot = (await GeneratedClipModel.findById(clipId).lean())!.goLiveAt!;
+    expect(slot.getTime()).toBeGreaterThan(Date.now() + 15 * 60_000);
+    expect([0, 6, 12, 18]).toContain(slot.getUTCHours());
+
+    await upload.upload(clipId, ctx);
+    expect(uploader.uploads[0]!.metadata).toMatchObject({ privacyStatus: 'private', publishAt: slot });
+    const after = (await GeneratedClipModel.findById(clipId).lean())!;
+    expect(after.uploadStatus).toBe('PUBLISHED');
+    expect(after.publishedAt!.getTime()).toBe(slot.getTime());
+
+    const cal = await schedule.list();
+    expect(cal.items.find((i) => i.id === clipId)).toMatchObject({ uploaded: true });
+  });
+
+  it('IMMEDIATE mode and private uploads get no slot', async () => {
+    const schedule = new ScheduleService({ settings });
+    const { clipId } = await renderedClip('x');
+    expect(await schedule.assign(clipId)).toBeNull(); // privacy is private
+    await settings.update({ publishing: { privacyStatus: 'public', timingMode: 'IMMEDIATE' } }, ADMIN);
+    expect(await schedule.assign(clipId)).toBeNull();
   });
 });
 

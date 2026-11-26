@@ -21,6 +21,7 @@ import { DomainError } from './errors';
 import { nextWindowOpen } from './scheduling';
 import { enqueueTracked } from './jobs';
 import type { SettingsService } from './settings';
+import { IMMEDIATE_WITHIN_MS, type ScheduleService } from './schedule';
 
 const PROVIDER = 'youtube';
 const STATE_TTL_SECONDS = 10 * 60;
@@ -171,6 +172,8 @@ export class PublishService {
       logger?: Logger;
       /** Runs after a clip is approved (e.g. queue the Instagram cross-post). Must not throw. */
       afterApprove?: (clipId: string) => Promise<unknown>;
+      /** Scheduled publishing: gives approved clips a publish slot. */
+      schedule?: ScheduleService;
     },
   ) {}
 
@@ -279,6 +282,8 @@ export class PublishService {
       },
     );
     if (!res.modifiedCount) throw new DomainError('ALREADY_QUEUED', 'This clip is already queued, uploading or published', 409);
+    // Pick the publish slot now so the calendar shows it straight away (the upload starts early).
+    await this.deps.schedule?.assign(clipId).catch((err: Error) => this.deps.logger?.warn({ clipId, err: err.message }, 'No publish slot assigned'));
     await enqueueTracked(this.deps.queues, {
       jobType: JobType.YOUTUBE_UPLOAD,
       jobName: 'upload-short',
@@ -338,6 +343,7 @@ export class UploadService {
       uploader: YouTubeUploader;
       workDir: string;
       logger?: Logger;
+      schedule?: ScheduleService;
     },
   ) {}
 
@@ -373,7 +379,11 @@ export class UploadService {
     if (![UploadStatus.QUEUED, UploadStatus.UPLOADING].includes(clip.uploadStatus as never)) return 'SKIPPED';
     if (!clip.storageKey) throw new UnrecoverableError('Rendered file is missing');
 
-    const slot = await this.nextSlot();
+    // Scheduled publishing: upload early as private and let YouTube make it public at the slot.
+    const goLiveAt = clip.goLiveAt ?? (await this.deps.schedule?.assign(clipId)) ?? null;
+    const scheduled = Boolean(goLiveAt && goLiveAt.getTime() > Date.now() + IMMEDIATE_WITHIN_MS);
+    // Without a slot, the upload limit, spacing and window decide when it goes up.
+    const slot = goLiveAt ? null : await this.nextSlot();
     if (slot) {
       await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { scheduledPublishAt: slot } });
       return await ctx.defer(slot, 'Waiting for the upload limit / spacing in Settings → Publishing');
@@ -395,7 +405,8 @@ export class UploadService {
           description: clip.description,
           tags: clip.tags,
           categoryId: publishing.categoryId || '20',
-          privacyStatus: publishing.privacyStatus,
+          privacyStatus: scheduled ? 'private' : goLiveAt ? 'public' : publishing.privacyStatus,
+          publishAt: scheduled ? goLiveAt : null,
           language: languageCode(transcript?.language),
         },
         resumeUrl: clip.resumableUploadUrl ?? null,
@@ -417,9 +428,9 @@ export class UploadService {
       const url = youtubeShortUrl(result.videoId);
       await GeneratedClipModel.updateOne(
         { _id: clipId },
-        { $set: { youtubeVideoId: result.videoId, youtubeUrl: url, uploadStatus: UploadStatus.PUBLISHED, publishedAt: new Date(), resumableUploadUrl: null, lastError: null } },
+        { $set: { youtubeVideoId: result.videoId, youtubeUrl: url, uploadStatus: UploadStatus.PUBLISHED, publishedAt: scheduled ? goLiveAt : new Date(), resumableUploadUrl: null, lastError: null } },
       );
-      this.deps.logger?.info({ clipId, videoId: result.videoId, uploader: this.deps.uploader.name }, 'Short uploaded');
+      this.deps.logger?.info({ clipId, videoId: result.videoId, uploader: this.deps.uploader.name, goLiveAt: scheduled ? goLiveAt : null }, scheduled ? 'Short uploaded, scheduled to go public' : 'Short uploaded');
 
       if (clip.thumbnailKey) {
         // Custom thumbnails need a verified channel; failure here never fails the upload.

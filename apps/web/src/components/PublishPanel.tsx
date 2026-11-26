@@ -57,12 +57,14 @@ export function PublishPanel({ clip, canEdit }: { clip: GeneratedClipDTO; canEdi
 
       {clip.uploadStatus === 'PUBLISHED' && clip.youtubeUrl && (
         <Alert severity="success" sx={{ mb: 1.5 }} action={<Button size="small" href={clip.youtubeUrl} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNew />}>Open</Button>}>
-          {`Published ${formatDateTime(clip.publishedAt)}${privacy ? ` as ${privacy}` : ''}.`}
+          {clip.goLiveAt && new Date(clip.goLiveAt).getTime() > Date.now()
+            ? `Uploaded. Goes public ${formatDateTime(clip.goLiveAt)} (see Schedule).`
+            : `Published ${formatDateTime(clip.publishedAt)}${privacy ? ` as ${privacy}` : ''}.`}
         </Alert>
       )}
       {clip.uploadStatus === 'QUEUED' && (
         <Alert severity="info" sx={{ mb: 1.5 }}>
-          {clip.scheduledPublishAt ? `Queued. Uploads at ${formatDateTime(clip.scheduledPublishAt)} (daily limit / spacing in Settings → Publishing).` : 'Queued for upload…'}
+          {clip.goLiveAt ? `Queued. Goes public ${formatDateTime(clip.goLiveAt)}; uploads before then.` : clip.scheduledPublishAt ? `Queued. Uploads at ${formatDateTime(clip.scheduledPublishAt)} (daily limit / spacing in Settings → Publishing).` : 'Queued for upload…'}
           {clip.lastError && <Typography variant="caption" component="p">{clip.lastError}</Typography>}
         </Alert>
       )}

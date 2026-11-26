@@ -10,6 +10,7 @@ import { NotFoundPage } from './pages/PlaceholderPages';
 import { StreamerDetailPage } from './pages/StreamerDetailPage';
 import { StreamersPage } from './pages/StreamersPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SchedulePage } from './pages/SchedulePage';
 
 export function App() {
   return (
@@ -22,6 +23,7 @@ export function App() {
           <Route path="streamers/:id" element={<StreamerDetailPage />} />
           <Route path="sessions" element={<LiveSessionsPage />} />
           <Route path="clips" element={<ClipStudioPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />

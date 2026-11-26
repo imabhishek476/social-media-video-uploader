@@ -22,6 +22,7 @@ import MovieFilterOutlined from '@mui/icons-material/MovieFilterOutlined';
 import PeopleAltOutlined from '@mui/icons-material/PeopleAltOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import WorkHistoryOutlined from '@mui/icons-material/WorkHistoryOutlined';
+import EventOutlined from '@mui/icons-material/EventOutlined';
 import { useLogout, useMe } from '../api/hooks';
 
 const DRAWER_WIDTH = 240;
@@ -31,6 +32,7 @@ const NAV: Array<{ to: string; label: string; icon: ReactNode }> = [
   { to: '/streamers', label: 'Streamers', icon: <PeopleAltOutlined /> },
   { to: '/sessions', label: 'Live Sessions', icon: <LiveTvOutlined /> },
   { to: '/clips', label: 'Clip Studio', icon: <MovieFilterOutlined /> },
+  { to: '/schedule', label: 'Schedule', icon: <EventOutlined /> },
   { to: '/jobs', label: 'Job Monitor', icon: <WorkHistoryOutlined /> },
   { to: '/settings', label: 'Settings', icon: <SettingsOutlined /> },
 ];

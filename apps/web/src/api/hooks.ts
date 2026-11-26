@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  ScheduleDTO,
   AppSettingsDTO,
   CandidateUpdateInput,
   ClipMetadataInput,
@@ -404,5 +405,29 @@ export function useDeleteSession() {
   return useMutation({
     mutationFn: (id: string) => api<void>(`/live-sessions/${id}`, { method: 'DELETE' }),
     onSuccess: invalidate,
+  });
+}
+
+// Phase 8: publish calendar
+export function useSchedule(days = 14) {
+  return useQuery({ queryKey: ['schedule', days], queryFn: () => api<ScheduleDTO>('/schedule', { query: { days } }), refetchInterval: 30_000 });
+}
+
+export function useRescheduleClip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clipId, goLiveAt }: { clipId: string; goLiveAt: string }) => api<{ ok: boolean }>(`/clips/${clipId}/schedule`, { method: 'PUT', body: { goLiveAt } }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['schedule'] }),
+  });
+}
+
+export function usePublishNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clipId }: { clipId: string }) => api<{ ok: boolean }>(`/clips/${clipId}/publish-now`, { method: 'POST' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['schedule'] });
+      void qc.invalidateQueries({ queryKey: ['clips'] });
+    },
   });
 }

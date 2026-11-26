@@ -11,10 +11,11 @@ import { AuthService, SESSION_COOKIE } from '../services/auth.service';
 import { getDashboardSummary } from '../services/dashboard.service';
 import { getJob, jobListQuerySchema, listJobs } from '../services/jobs.service';
 import { toClipDTO } from '@shorts/core';
-import { StreamerPurgeService } from '@shorts/core';
+import { ScheduleService, StreamerPurgeService } from '@shorts/core';
 import { CandidateService, ChannelService, ClipService, InstagramAccountService, InstagramPublishService, PublishService, SessionImportService, YouTubeAccountService, LiveSessionService, SettingsService } from '@shorts/core';
 import { GcsObjectStorage, InstagramGraphClient, YouTubeOAuthClient, createMetadataGenerator, createObjectStorage } from '@shorts/integrations';
 import { createPublishRoutes, createYouTubeCallbackRoute, createYouTubeRoutes } from './youtube';
+import { createScheduleRoutes } from './schedule';
 import { createClipRoutes, createHighlightRoutes, createSessionAnalysisRoutes } from './highlights';
 import { getReadiness, getSystemStatus } from '../services/system.service';
 import { createSessionRoutes } from './sessions';
@@ -44,7 +45,9 @@ export function createV1Router(deps: AppDeps): Router {
   const igClient = deps.instagram ?? new InstagramGraphClient();
   const igAccount = new InstagramAccountService({ client: igClient, encryptionKey: deps.config.encryptionKey, logger: deps.logger });
   const instagram = new InstagramPublishService({ settings, storage, queues: deps.queues, account: igAccount, client: igClient, workDir: deps.config.worker.storageDir, logger: deps.logger });
+  const schedule = new ScheduleService({ settings, accessToken: () => account.accessToken(), logger: deps.logger });
   const publish = new PublishService({
+    schedule,
     settings,
     queues: deps.queues,
     account,
@@ -166,6 +169,7 @@ export function createV1Router(deps: AppDeps): Router {
   router.use('/live-sessions', clipRoutes.sessionRouter);
   router.use('/clips', clipRoutes.clipRouter);
   router.use('/clips', createPublishRoutes(publish, clipService, adminOnly));
+  router.use(createScheduleRoutes(schedule, adminOnly));
   router.use('/integrations/youtube', createYouTubeRoutes(account, adminOnly));
 
   router.put('/integrations/instagram', adminOnly, async (req, res) => {
