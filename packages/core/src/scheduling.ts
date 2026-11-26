@@ -120,7 +120,7 @@ export interface SlotPlanInput {
   /** Slots of Shorts from the same stream/video. */
   sameSource: Date[];
   maxPerSourcePerDay: number;
-  /** Empty days between posting days (0 = every day). A day that already has posts can take more. */
+  /** Publish this many days after today (0 = today, 3 = the 3rd day from today). */
   dayGap?: number;
   /** Don't pick a slot sooner than this (time to upload and process). */
   minLeadMinutes?: number;
@@ -128,36 +128,35 @@ export interface SlotPlanInput {
 }
 
 /**
- * The first free publish slot: not taken by another Short, not on a skipped
- * day, at least `minLeadMinutes` away, and with fewer than
+ * The publish time for the next Short: `dayGap` days from today (or the first
+ * day after that which isn't skipped) at a time at least `minLeadMinutes` away, using the
+ * time with the fewest Shorts so far; and with fewer than
  * `maxPerSourcePerDay` Shorts from the same source that day.
  */
 export function planSlot(i: SlotPlanInput): Date | null {
   if (!i.slots.length) return null;
   const earliest = i.now.getTime() + (i.minLeadMinutes ?? 20) * 60_000;
-  const taken = new Set(i.taken.map((d) => Math.round(d.getTime() / 60_000)));
+  const minute = (d: Date) => Math.round(d.getTime() / 60_000);
+  const used = new Map<number, number>();
+  for (const d of i.taken) used.set(minute(d), (used.get(minute(d)) ?? 0) + 1);
   const perDay = new Map<string, number>();
   for (const d of i.sameSource) perDay.set(localDay(d, i.timeZone), (perDay.get(localDay(d, i.timeZone)) ?? 0) + 1);
-  const dayNumber = (d: Date) => {
-    const p = localParts(d, i.timeZone);
-    return Date.UTC(p.y, p.mo - 1, p.d) / 86_400_000;
-  };
-  const postingDays = new Set(i.taken.map(dayNumber));
-  const gap = i.dayGap ?? 0;
-  const gapOk = (n: number) => postingDays.has(n) || [...postingDays].every((p) => Math.abs(p - n) > gap);
   const today = localParts(i.now, i.timeZone);
-  for (let day = 0; day < (i.maxDays ?? 60); day++) {
+  for (let day = Math.max(0, i.dayGap ?? 0); day < (i.maxDays ?? 60); day++) {
     // Noon of the local day avoids DST edges when stepping days.
     const noon = zonedTime(today.y, today.mo, today.d + day, 12, 0, i.timeZone);
     const p = localParts(noon, i.timeZone);
     if (i.skipDays.includes(p.wd)) continue;
-    if (gap > 0 && !gapOk(dayNumber(noon))) continue;
     if (i.maxPerSourcePerDay > 0 && (perDay.get(localDay(noon, i.timeZone)) ?? 0) >= i.maxPerSourcePerDay) continue;
+    // Times are the best moments to post, not limited slots: any number of Shorts
+    // fit on a posting day, spread over its times (the least-used time first).
+    let best: Date | null = null;
     for (const [h, m] of i.slots) {
       const at = zonedTime(p.y, p.mo, p.d, h, m, i.timeZone);
-      if (at.getTime() < earliest || taken.has(Math.round(at.getTime() / 60_000))) continue;
-      return at;
+      if (at.getTime() < earliest) continue;
+      if (!best || (used.get(minute(at)) ?? 0) < (used.get(minute(best)) ?? 0)) best = at;
     }
+    if (best) return best;
   }
   return null;
 }

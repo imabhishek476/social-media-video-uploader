@@ -143,13 +143,15 @@ function scheduleSummary(d: Draft): string {
   const times = listTimes(String(p.slotTimes)).map(time12);
   const tz = TIME_ZONES.find((z) => z.value === p.timezone)?.label ?? String(p.timezone);
   const gap = Number(p.dayGap) || 0;
-  const days = gap === 0 ? 'every day' : gap === 1 ? 'every other day' : `every ${ordinal(gap + 1)} day`;
+  const days =
+    gap === 0 ? 'on the same day it’s scheduled (or the next day if today’s times have passed)' : gap === 1 ? 'on the day after it’s scheduled' : `on the ${ordinal(gap)} day after it’s scheduled (scheduled today → ${new Date(Date.now() + gap * 86_400_000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })})`;
   const FULL: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
   const skipped = String(p.skipDays).split(',').map((x) => FULL[x.trim().slice(0, 3).toLowerCase()]).filter(Boolean) as string[];
   const skip = skipped.length ? `, but never on ${joinList(skipped)}` : '';
+  const perTime = ' Any number of Shorts per day, spread over these times.';
   const perStream = Number(p.maxPerSourcePerDay) > 0 ? ` At most ${p.maxPerSourcePerDay} from the same stream on one day.` : '';
   const best = p.timingMode === 'BEST_TIME' ? ' Once enough Shorts have views, the app switches to the hours that work best for your channel.' : '';
-  return `Shorts go public at ${joinList(times) || '(no times set)'} ${tz} time, ${days}${skip}.${perStream}${best}`;
+  return `Each Short goes public ${days}, at one of ${joinList(times) || '(no times set)'} ${tz} time${skip}.${perTime}${perStream}${best}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,15 +210,16 @@ export const TABS: Array<{ id: string; label: string; groups: Group[] }> = [
               opt('IMMEDIATE', 'Straight away', 'As soon as each Short is uploaded.'),
             ],
           },
-          { section: 'publishing', key: 'slotTimes', label: 'Times of day', kind: 'times', width: 'full', helper: 'One Short goes out at each time.', showIf: scheduled },
+          { section: 'publishing', key: 'slotTimes', label: 'Best times of day', kind: 'times', width: 'full', helper: 'Shorts are spread over these times. There is no limit per time or per day.', showIf: scheduled },
           { section: 'publishing', key: 'timezone', label: 'Time zone', kind: 'select', options: TIME_ZONES },
           {
             section: 'publishing',
             key: 'dayGap',
-            label: 'How often',
+            label: 'Publish on',
             kind: 'select',
             numeric: true,
-            options: [opt(0, 'Every day'), opt(1, 'Every other day'), opt(2, 'Every 3rd day'), opt(3, 'Every 4th day'), opt(6, 'Once a week')],
+            options: [opt(0, 'The same day (next best time)'), opt(1, 'The next day'), opt(2, '2nd day after scheduling'), opt(3, '3rd day after scheduling'), opt(5, '5th day after scheduling'), opt(7, '1 week after scheduling')],
+            helper: 'Counted from the day each Short is scheduled.',
             showIf: scheduled,
           },
           { section: 'publishing', key: 'skipDays', label: 'Posting days', kind: 'days', width: 'full', showIf: scheduled },

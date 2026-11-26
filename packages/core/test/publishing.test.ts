@@ -67,7 +67,7 @@ afterAll(async () => {
 beforeEach(async () => {
   enqueued.length = 0;
   await Promise.all(Object.values(mongoose.connection.collections).map((c) => c.deleteMany({})));
-  await settings.update({ publishing: { mode: 'MANUAL_APPROVAL', dailyUploadLimit: 10, minMinutesBetweenUploads: 0, privacyStatus: 'private', timingMode: 'BEST_TIME', skipDays: '', maxPerSourcePerDay: 2 } }, ADMIN);
+  await settings.update({ publishing: { mode: 'MANUAL_APPROVAL', dailyUploadLimit: 10, minMinutesBetweenUploads: 0, privacyStatus: 'private', timingMode: 'BEST_TIME', skipDays: '', maxPerSourcePerDay: 2, dayGap: 0 } }, ADMIN);
   // A connected central channel (approval requires one).
   await IntegrationCredentialModel.create({ provider: 'youtube', accountId: 'UCcentral', encryptedRefreshToken: 'x', status: 'ACTIVE' });
 });
@@ -167,15 +167,17 @@ describe('scheduled publishing', () => {
   const IST = 'Asia/Kolkata';
   const slots: Array<[number, number]> = [[12, 30], [18, 0], [21, 0]];
 
-  it('picks the next free slot in the channel time zone, skipping taken slots and days', () => {
+  it('uses the time zone, spreads Shorts over the day\'s times and skips days', () => {
     const now = new Date('2026-11-26T08:00:00Z'); // 13:30 IST, Thursday
     const first = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [], sameSource: [], maxPerSourcePerDay: 0 });
     expect(first!.toISOString()).toBe('2026-11-26T12:30:00.000Z'); // 18:00 IST
     const second = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [first!], sameSource: [], maxPerSourcePerDay: 0 });
-    expect(second!.toISOString()).toBe('2026-11-26T15:30:00.000Z'); // 21:00 IST
-    // Friday skipped -> Saturday 12:30 IST
-    const third = planSlot({ now, timeZone: IST, slots, skipDays: [5], taken: [first!, second!], sameSource: [], maxPerSourcePerDay: 0 });
-    expect(third!.toISOString()).toBe('2026-11-28T07:00:00.000Z');
+    expect(second!.toISOString()).toBe('2026-11-26T15:30:00.000Z'); // 21:00 IST, the less-used time
+    const third = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [first!, second!], sameSource: [], maxPerSourcePerDay: 0 });
+    expect(localDay(third!, IST)).toBe('2026-11-26'); // no limit per day
+    // After today's times, with Friday skipped -> Saturday 12:30 IST
+    const late = planSlot({ now: new Date('2026-11-26T16:00:00Z'), timeZone: IST, slots, skipDays: [5], taken: [], sameSource: [], maxPerSourcePerDay: 0 });
+    expect(late!.toISOString()).toBe('2026-11-28T07:00:00.000Z');
   });
 
   it('spreads one stream over days with maxPerSourcePerDay', () => {
@@ -186,18 +188,6 @@ describe('scheduled publishing', () => {
     expect(localDay(a, IST)).toBe('2026-11-26');
     expect(localDay(b, IST)).toBe('2026-11-26');
     expect(localDay(c, IST)).toBe('2026-11-27');
-  });
-
-  it('leaves dayGap empty days between posting days', () => {
-    const now = new Date('2026-11-26T02:00:00Z'); // Thu 07:30 IST
-    const one: Array<[number, number]> = [[18, 0]];
-    const a = planSlot({ now, timeZone: IST, slots: one, skipDays: [], taken: [], sameSource: [], maxPerSourcePerDay: 0, dayGap: 2 })!;
-    const b = planSlot({ now, timeZone: IST, slots: one, skipDays: [], taken: [a], sameSource: [], maxPerSourcePerDay: 0, dayGap: 2 })!;
-    expect(localDay(a, IST)).toBe('2026-11-26');
-    expect(localDay(b, IST)).toBe('2026-11-29'); // two empty days in between
-    // A posting day keeps filling its other slots.
-    const c = planSlot({ now, timeZone: IST, slots, skipDays: [], taken: [a], sameSource: [], maxPerSourcePerDay: 0, dayGap: 2 })!;
-    expect(localDay(c, IST)).toBe('2026-11-26');
   });
 
   it('learns best hours only with enough data', () => {
@@ -228,6 +218,28 @@ describe('scheduled publishing', () => {
 
     const cal = await schedule.list();
     expect(cal.items.find((i) => i.id === clipId)).toMatchObject({ uploaded: true });
+  });
+
+  it('publishes dayGap days after scheduling (0 = same day, next day once today\'s times passed)', () => {
+    const one: Array<[number, number]> = [[18, 0]];
+    const base = { timeZone: IST, slots: one, skipDays: [], taken: [], sameSource: [], maxPerSourcePerDay: 0 };
+    const morning = new Date('2026-11-26T02:00:00Z'); // 07:30 IST Nov 26
+    expect(localDay(planSlot({ ...base, now: morning, dayGap: 3 })!, IST)).toBe('2026-11-29');
+    expect(localDay(planSlot({ ...base, now: morning, dayGap: 0 })!, IST)).toBe('2026-11-26');
+    const night = new Date('2026-11-26T16:00:00Z'); // 21:30 IST, 18:00 passed
+    expect(localDay(planSlot({ ...base, now: night, dayGap: 0 })!, IST)).toBe('2026-11-27');
+    expect(localDay(planSlot({ ...base, now: night, dayGap: 3 })!, IST)).toBe('2026-11-29');
+  });
+
+  it('fits any number of Shorts on a posting day, spread over its times', () => {
+    const now = new Date('2026-11-26T02:00:00Z'); // 07:30 IST
+    const two: Array<[number, number]> = [[12, 30], [18, 0]];
+    const base = { now, timeZone: IST, slots: two, skipDays: [], sameSource: [], maxPerSourcePerDay: 0 };
+    const taken: Date[] = [];
+    for (let k = 0; k < 5; k++) taken.push(planSlot({ ...base, taken })!);
+    expect(taken.every((d) => localDay(d, IST) === '2026-11-26')).toBe(true);
+    const at1230 = taken.filter((d) => d.getUTCHours() === 7).length;
+    expect([2, 3]).toContain(at1230); // alternates between the two times
   });
 
   it('IMMEDIATE mode and private uploads get no slot', async () => {

@@ -63,16 +63,16 @@ export class ScheduleService {
     const now = this.now();
     if (clip.goLiveAt && clip.goLiveAt > now) return clip.goLiveAt;
     const { slots } = await this.slots();
-    const upcoming = await GeneratedClipModel.find({ _id: { $ne: clipId }, goLiveAt: { $gte: new Date(now.getTime() - 86_400_000) } })
-      .select('goLiveAt liveSessionId')
-      .lean();
+    // Only upcoming scheduled Shorts matter; past uploads don't affect the rhythm.
+    const rows = await GeneratedClipModel.find({ _id: { $ne: clipId }, goLiveAt: { $gte: now } }).select('goLiveAt liveSessionId').lean();
+    const upcoming = rows.map((c) => ({ at: c.goLiveAt!, liveSessionId: c.liveSessionId }));
     const at = planSlot({
       now,
       timeZone: publishing.timezone,
       slots,
       skipDays: parseSkipDays(publishing.skipDays),
-      taken: upcoming.map((c) => c.goLiveAt!),
-      sameSource: upcoming.filter((c) => String(c.liveSessionId) === String(clip.liveSessionId)).map((c) => c.goLiveAt!),
+      taken: upcoming.map((c) => c.at),
+      sameSource: upcoming.filter((c) => String(c.liveSessionId) === String(clip.liveSessionId)).map((c) => c.at),
       maxPerSourcePerDay: publishing.maxPerSourcePerDay,
       dayGap: publishing.dayGap,
     });
