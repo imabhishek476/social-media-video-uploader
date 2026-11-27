@@ -193,6 +193,8 @@ export interface StreamerPreferencesDTO {
   maxClipDurationSeconds: number | null;
   language: string | null;
   game: string | null;
+  /** Short style for this streamer; null = follow Settings. */
+  shortStyle: string | null;
 }
 
 export interface StreamerDTO {
@@ -261,6 +263,8 @@ export interface LiveSessionDTO {
   facecam: { x: number; y: number; w: number; h: number; source: 'detected' | 'manual' | 'none' } | null;
   /** Layout chosen for this session; null = the Settings default. */
   reframingMode: string | null;
+  /** Short style chosen when regenerating (Phase 8.6). */
+  shortStyle: string | null;
   clipCount: number;
   estimatedCostUsd: number;
   reprocessCount: number;
@@ -326,6 +330,9 @@ export interface GeneratedClipDTO {
   durationSeconds: number;
   highlightScore: number | null;
   reframingMode: string;
+  /** Style used for this Short and why, e.g. CLEAN · little talking. */
+  shortStyle: string | null;
+  styleReason: string | null;
   renderStatus: RenderStatus;
   renderVersion: number;
   fileSizeBytes: number | null;

@@ -34,6 +34,8 @@ export const appSettingsSchema = z.object({
     reframingMode: z.enum(enumValues(ReframingMode) as [ReframingMode, ...ReframingMode[]]),
     /** Start each Short with a ~2 s flash-forward of its best moment. */
     coldOpen: z.enum(['ON', 'OFF']),
+    /** Look of each Short: AUTO picks per moment; or always one style. */
+    shortStyle: z.enum(['AUTO', 'REACTION', 'GAMEPLAY', 'CLEAN', 'STORY']),
   }),
   subtitles: z.object({
     language: z.string().trim().min(2).max(10),
@@ -68,6 +70,15 @@ export const appSettingsSchema = z.object({
     }, 'Unknown time zone (use an IANA name like Asia/Kolkata)'),
     /** MANUAL: post to Instagram from Clip Studio only; WITH_YOUTUBE: approving a clip also queues the Reel. */
     instagramMode: z.enum(['MANUAL', 'WITH_YOUTUBE']),
+    /** Channel focus: only Shorts in this language are approved automatically ('' = any). */
+    focusLanguage: z.string().trim().max(10),
+    /** Weekly "best of" compilation video. */
+    weeklyCompilation: z.enum(['ON', 'OFF']),
+    /** Day it is built (Sun..Sat) and the hour (in `timezone`). */
+    compilationDay: z.enum(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']),
+    compilationHour: z.number().int().min(0).max(23),
+    /** Shorts needed before a compilation is made. */
+    compilationMinShorts: z.number().int().min(3).max(40),
     /** Post a question as the first comment once a Short is public. */
     firstComment: z.enum(['ON', 'OFF']),
     /** When a Reel is posted: at its YouTube Short's scheduled time, or straight away. */
@@ -158,6 +169,7 @@ export const streamerPreferencesSchema = z
     maxClipDurationSeconds: nullableInt(5, 180),
     language: z.string().trim().min(2).max(10).nullable(),
     game: z.string().trim().min(2).max(60).nullable(),
+    shortStyle: z.enum(['AUTO', 'REACTION', 'GAMEPLAY', 'CLEAN', 'STORY']).nullable(),
   })
   .partial()
   .strict()

@@ -315,10 +315,10 @@ export function useClipMedia(clipId: string | null, version: number | null) {
 export function useRenderSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ sessionId, force, fresh, reframingMode }: { sessionId: string; force?: boolean; fresh?: boolean; reframingMode?: string }) =>
+    mutationFn: ({ sessionId, force, fresh, reframingMode, shortStyle }: { sessionId: string; force?: boolean; fresh?: boolean; reframingMode?: string; shortStyle?: string }) =>
       api<{ queued: boolean; removed?: number; kept?: number }>(`/live-sessions/${sessionId}/render`, {
         method: 'POST',
-        body: { force: Boolean(force), ...(fresh ? { fresh: true } : {}), ...(reframingMode ? { reframingMode } : {}) },
+        body: { force: Boolean(force), ...(fresh ? { fresh: true } : {}), ...(reframingMode ? { reframingMode } : {}), ...(shortStyle ? { shortStyle } : {}) },
       }),
     onSuccess: (_d, { sessionId }) => {
       void qc.invalidateQueries({ queryKey: ['clips', sessionId] });
@@ -429,5 +429,30 @@ export function usePublishNow() {
       void qc.invalidateQueries({ queryKey: ['schedule'] });
       void qc.invalidateQueries({ queryKey: ['clips'] });
     },
+  });
+}
+
+// Phase 8.5: weekly compilations
+export interface CompilationSummary {
+  id: string;
+  weekKey: string;
+  status: string;
+  title: string;
+  clipCount: number;
+  durationSeconds: number | null;
+  youtubeUrl: string | null;
+  lastError: string | null;
+  createdAt: string;
+}
+
+export function useCompilations() {
+  return useQuery({ queryKey: ['compilations'], queryFn: () => api<{ items: CompilationSummary[] }>('/compilations'), refetchInterval: 20_000 });
+}
+
+export function useBuildCompilation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ queued: boolean }>('/compilations/build', { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['compilations'] }),
   });
 }

@@ -13,6 +13,9 @@ const generatedClipSchema = new Schema(
     endSeconds: { type: Number, required: true },
     durationSeconds: { type: Number, required: true },
     highlightScore: { type: Number, default: null },
+    /** Style used for this Short and why (Phase 8.6). */
+    shortStyle: { type: String, default: null },
+    styleReason: { type: String, default: null },
     reframingMode: { type: String, enum: enumValues(ReframingMode), default: ReframingMode.CENTER_CROP },
 
     storageKey: { type: String, default: null },

@@ -208,3 +208,44 @@ export async function extractFrames(sourcePath: string, times: number[], outDir:
   }
   return out;
 }
+
+/**
+ * Long-form compilation (16:9, 1920×1080) from vertical Shorts: each Short is
+ * centred over a blurred, zoomed copy of itself, then all are joined in order.
+ */
+export async function renderCompilation(inputs: string[], outPath: string, totalSeconds: number, onProgress?: (fraction: number) => void): Promise<void> {
+  if (!inputs.length) throw new RenderError('No clips to compile');
+  const parts = inputs.map(
+    (_, i) =>
+      `[${i}:v]split=2[b${i}][f${i}];` +
+      `[b${i}]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,gblur=sigma=30,eq=brightness=-0.15[bg${i}];` +
+      `[f${i}]scale=-2:1080:flags=lanczos[fg${i}];` +
+      `[bg${i}][fg${i}]overlay=(W-w)/2:0,setsar=1,fps=${FPS},format=yuv420p[v${i}];` +
+      `[${i}:a]aresample=48000,aformat=channel_layouts=stereo[a${i}]`,
+  );
+  const concat = `${inputs.map((_, i) => `[v${i}][a${i}]`).join('')}concat=n=${inputs.length}:v=1:a=1[v][a]`;
+  await runFfmpeg(
+    [
+      '-y',
+      ...inputs.flatMap((p) => ['-i', p]),
+      '-filter_complex', `${parts.join(';')};${concat}`,
+      '-map', '[v]',
+      '-map', '[a]',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-profile:v', 'high',
+      '-c:a', 'aac', '-b:a', '160k',
+      '-movflags', '+faststart',
+      outPath,
+    ],
+    totalSeconds,
+    onProgress,
+  );
+}
+
+/** "M:SS" (or "H:MM:SS") chapter stamp. */
+export function chapterStamp(seconds: number): string {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}

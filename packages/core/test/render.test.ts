@@ -204,11 +204,11 @@ describe('exact word captions and facecam split', () => {
   }, 60_000);
 
   it('detects the facecam once, stores it, and falls back to the full frame when there is none', async () => {
-    await settings.update({ clips: { reframingMode: 'FACECAM_SPLIT' } }, ADMIN);
+    // A session regenerated with a fixed layout keeps the pre-styles behaviour.
     let calls = 0;
     const found = { name: 'fake', detect: async (frames: string[]) => (calls++, expect(frames).toHaveLength(3), { x: 0.75, y: 0.7, w: 0.25, h: 0.3 }) };
     const { id } = await sessionWithClips();
-    await LiveSessionModel.updateOne({ _id: id }, { 'sourceMedia.durationSeconds': 20 });
+    await LiveSessionModel.updateOne({ _id: id }, { 'sourceMedia.durationSeconds': 20, reframingMode: 'FACECAM_SPLIT' });
     const svc = new RenderService({ settings, storage, workDir: path.join(root, 'work'), facecam: found });
     expect(await svc.renderSession(id)).toMatchObject({ rendered: 2 });
     expect((await LiveSessionModel.findById(id).lean())!.facecam).toMatchObject({ x: 0.75, source: 'detected' });
@@ -218,9 +218,24 @@ describe('exact word captions and facecam split', () => {
 
     const none = { name: 'fake', detect: async () => null };
     const other = await sessionWithClips();
-    await LiveSessionModel.updateOne({ _id: other.id }, { 'sourceMedia.durationSeconds': 20 });
+    await LiveSessionModel.updateOne({ _id: other.id }, { 'sourceMedia.durationSeconds': 20, reframingMode: 'FACECAM_SPLIT' });
     await new RenderService({ settings, storage, workDir: path.join(root, 'work'), facecam: none }).renderSession(other.id);
     expect((await LiveSessionModel.findById(other.id).lean())!.facecam).toMatchObject({ source: 'none' });
     expect((await GeneratedClipModel.find({ liveSessionId: other.id }).lean()).every((c) => c.reframingMode === 'BLUR_FIT')).toBe(true);
+  }, 180_000);
+
+  it('Auto style: checks the face inside each clip and records the style and reason', async () => {
+    // Session-level webcam found (3 frames), but the per-clip check (2 frames) finds no face.
+    const detector = { name: 'fake', detect: async (frames: string[]) => (frames.length === 3 ? { x: 0.75, y: 0.7, w: 0.25, h: 0.3 } : null) };
+    const { id } = await sessionWithClips();
+    await LiveSessionModel.updateOne({ _id: id }, { 'sourceMedia.durationSeconds': 20, shortStyle: 'AUTO' });
+    await new RenderService({ settings, storage, workDir: path.join(root, 'work'), facecam: detector }).renderSession(id);
+    const clips = await GeneratedClipModel.find({ liveSessionId: id }).lean();
+    expect(clips.length).toBeGreaterThan(0);
+    for (const c of clips) {
+      expect(['GAMEPLAY', 'CLEAN']).toContain(c.shortStyle);
+      expect(c.reframingMode).toBe('CENTER_CROP'); // never an empty webcam band
+      expect(c.styleReason).toBeTruthy();
+    }
   }, 180_000);
 });

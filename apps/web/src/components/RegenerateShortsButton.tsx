@@ -12,11 +12,12 @@ import Refresh from '@mui/icons-material/Refresh';
 import { describeError } from '../api/client';
 import { useRenderSession } from '../api/hooks';
 
-const LAYOUTS = [
-  { value: 'FACECAM_SPLIT', label: 'Split: webcam on top, gameplay below' },
-  { value: 'GAMEPLAY', label: 'Gameplay full screen, small webcam corner' },
-  { value: 'BLUR_FIT', label: 'Whole frame over a blurred background' },
-  { value: 'CENTER_CROP', label: 'Centre crop' },
+const STYLES = [
+  { value: 'AUTO', label: 'Auto: the best style for each moment' },
+  { value: 'REACTION', label: 'Reaction: webcam on top, game below' },
+  { value: 'GAMEPLAY', label: 'Gameplay: full game, small webcam corner' },
+  { value: 'CLEAN', label: 'Clean gameplay: no webcam, captions or hook' },
+  { value: 'STORY', label: 'Story: full game with a title, no captions' },
 ];
 
 /**
@@ -24,12 +25,12 @@ const LAYOUTS = [
  * titles) and renders them again from the selected highlights in the chosen
  * layout. Shorts already posted are kept.
  */
-export function RegenerateShortsButton({ sessionId, currentMode, unpublished, disabled }: { sessionId: string; currentMode: string; unpublished: number; disabled?: boolean }) {
+export function RegenerateShortsButton({ sessionId, currentMode, unpublished, disabled }: { sessionId: string; currentMode: string; /* current style */ unpublished: number; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState(currentMode);
   const render = useRenderSession();
   const submit = () =>
-    render.mutate({ sessionId, fresh: true, reframingMode: mode }, { onSuccess: () => setOpen(false) });
+    render.mutate({ sessionId, fresh: true, shortStyle: mode }, { onSuccess: () => setOpen(false) });
   return (
     <>
       <Button size="small" variant="outlined" color="warning" startIcon={<Refresh />} disabled={disabled} onClick={() => { setMode(currentMode); setOpen(true); }}>
@@ -38,8 +39,8 @@ export function RegenerateShortsButton({ sessionId, currentMode, unpublished, di
       <Dialog open={open} onClose={() => !render.isPending && setOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Regenerate Shorts</DialogTitle>
         <DialogContent>
-          <TextField select fullWidth label="Layout" value={mode} onChange={(e) => setMode(e.target.value)} sx={{ mt: 1, mb: 2 }}>
-            {LAYOUTS.map((l) => (
+          <TextField select fullWidth label="Style" value={mode} onChange={(e) => setMode(e.target.value)} sx={{ mt: 1, mb: 2 }}>
+            {STYLES.map((l) => (
               <MenuItem key={l.value} value={l.value}>
                 {l.label}
               </MenuItem>

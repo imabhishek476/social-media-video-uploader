@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { GeneratedClipModel, HighlightCandidateModel, LiveSessionModel, mongoose } from '@shorts/database';
+import { GeneratedClipModel, HighlightCandidateModel, LiveSessionModel, StreamerChannelModel, mongoose } from '@shorts/database';
 import type { FacecamDetector, ObjectStorage } from '@shorts/integrations';
 import type { Logger } from '@shorts/observability';
 import { UnrecoverableError } from '@shorts/queue';
@@ -19,6 +19,7 @@ import { FONTS_DIR, buildAssCaptions, presetStyle, type CaptionStyle } from './c
 import { DomainError, isDuplicateKeyError } from './errors';
 import { SHORT_HEIGHT, SHORT_WIDTH, captionAnchor, coldOpenRange, concatShorts, extractFrames, renderShort, type FrameBox, type RenderMode } from './render';
 import type { SettingsService } from './settings';
+import { isShortStyle, pickStyle, styleLook, wordsPerSecond, type MomentType, type StyleSetting } from './styles';
 
 export interface RenderDeps {
   settings: SettingsService;
@@ -91,7 +92,20 @@ export class RenderService {
     await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { processingStatus: ProcessingStatus.RUNNING, processingStage: RENDER_STAGE } });
     const { clips: clipSettings, subtitles } = (await this.deps.settings.getValues()).values;
     // A mode chosen for this session ("Re-render with layout…") wins over Settings.
-    const wanted = session.reframingMode ?? clipSettings.reframingMode;
+    // Short style (Phase 8.6): regenerate choice > streamer > Settings. A session regenerated
+    // with a fixed layout before styles existed keeps that layout (styleSetting = null).
+    const streamer = await StreamerChannelModel.findById(session.streamerChannelId).select('preferences').lean();
+    const streamerStyle = (streamer?.preferences as { shortStyle?: string | null } | undefined)?.shortStyle;
+    const sessionStyle = (session as { shortStyle?: string | null }).shortStyle;
+    const styleSetting: StyleSetting | null =
+      sessionStyle === 'AUTO' || isShortStyle(sessionStyle)
+        ? sessionStyle
+        : session.reframingMode
+          ? null
+          : streamerStyle === 'AUTO' || isShortStyle(streamerStyle)
+            ? streamerStyle
+            : (clipSettings.shortStyle ?? 'AUTO');
+    const wanted = (styleSetting ? 'GAMEPLAY' : null) ?? session.reframingMode ?? clipSettings.reframingMode;
     const configured: RenderMode = (['BLUR_FIT', 'FACECAM_SPLIT', 'GAMEPLAY'] as string[]).includes(wanted) ? (wanted as RenderMode) : 'CENTER_CROP';
     let mode: RenderMode = configured;
     let facecam: FrameBox | null = null;
@@ -118,7 +132,8 @@ export class RenderService {
         await GeneratedClipModel.updateMany({ _id: { $in: claimed.map((c) => c.clipId) } }, { $set: { renderStatus: RenderStatus.PENDING, renderStartedAt: null } });
         throw err;
       }
-      if (configured === 'FACECAM_SPLIT' || configured === 'GAMEPLAY') {
+      const needsFacecam = styleSetting ? styleSetting !== 'CLEAN' && styleSetting !== 'STORY' : configured === 'FACECAM_SPLIT' || configured === 'GAMEPLAY';
+      if (needsFacecam) {
         facecam = await this.resolveFacecam(sessionId, source, session.sourceMedia.durationSeconds ?? 0, work);
         // No webcam (IRL, just chatting, or not found): split shows the whole frame; gameplay fills with the game.
         if (!facecam) mode = configured === 'GAMEPLAY' ? 'CENTER_CROP' : 'BLUR_FIT';
@@ -137,17 +152,37 @@ export class RenderService {
           teaserAss: path.join(work, `${clipId}-teaser.ass`),
         };
         try {
-          const segments = await loadTranscriptSegments(sessionId, c.startSeconds, c.endSeconds);
-          const hook = hookMode !== 'OFF' && c.hook ? { text: c.hook, mode: hookMode } : null;
-          const captionStyle = { ...style, anchorY: captionAnchor(mode, style.position) };
+          const allSegments = await loadTranscriptSegments(sessionId, c.startSeconds, c.endSeconds);
+          // Pick this Short's style and what it shows.
+          let clipMode: RenderMode = mode;
+          let clipFacecam = facecam;
+          let clipHook: 'ALWAYS' | 'INTRO' | 'OFF' = hookMode;
+          let showReaction = true;
+          let segments = allSegments;
+          let chosen: { style: string; reason: string } | null = null;
+          if (styleSetting) {
+            const wps = wordsPerSecond(allSegments, c.startSeconds, c.endSeconds);
+            const momentType = (c as { momentType?: MomentType | null }).momentType ?? null;
+            const wantsFace = facecam && (styleSetting === 'REACTION' || styleSetting === 'GAMEPLAY' || (styleSetting === 'AUTO' && momentType !== 'story' && wps >= 0.6));
+            const faceVisible = wantsFace ? await this.faceInClip(source, c.startSeconds, c.endSeconds, path.join(work, `face-${clipId}`)) : false;
+            chosen = styleSetting === 'AUTO' ? pickStyle({ momentType, faceVisible, wordsPerSecond: wps }) : { style: styleSetting, reason: 'chosen style' };
+            const look = styleLook(chosen.style as Parameters<typeof styleLook>[0], faceVisible);
+            clipMode = look.mode;
+            clipFacecam = look.useFacecam ? facecam : null;
+            clipHook = look.hook === 'OFF' || hookMode === 'OFF' ? 'OFF' : look.hook === 'TITLE' ? 'ALWAYS' : hookMode;
+            showReaction = look.reaction;
+            if (!look.wordCaptions) segments = [];
+          }
+          const hook = clipHook !== 'OFF' && c.hook ? { text: c.hook, mode: clipHook } : null;
+          const captionStyle = { ...style, anchorY: captionAnchor(clipMode, style.position) };
           const teaser = clipSettings.coldOpen !== 'OFF' ? coldOpenRange(c.startSeconds, c.endSeconds, c.keyMomentSeconds) : null;
           // Our reaction sticker appears once the hook is gone (top), or at the bottom when the hook stays.
-          const reactionText = subtitles.reactionSticker !== 'OFF' ? (c as { reaction?: string | null }).reaction : null;
-          const reaction = reactionText ? { text: reactionText, fromSeconds: hookMode === 'ALWAYS' ? 1.5 : teaser ? 2.5 : 4.2, at: (hookMode === 'ALWAYS' ? 'BOTTOM' : 'TOP') as 'TOP' | 'BOTTOM' } : null;
+          const reactionText = showReaction && subtitles.reactionSticker !== 'OFF' ? (c as { reaction?: string | null }).reaction : null;
+          const reaction = reactionText ? { text: reactionText, fromSeconds: clipHook === 'ALWAYS' ? 1.5 : teaser ? 2.5 : 4.2, at: (clipHook === 'ALWAYS' ? 'BOTTOM' : 'TOP') as 'TOP' | 'BOTTOM' } : null;
           // With a cold open the hook shows over the flash-forward, so the main part only keeps it when ALWAYS.
           const mainHook = teaser && hook?.mode === 'INTRO' ? null : hook;
           await fsp.writeFile(files.ass, buildAssCaptions(segments, c.startSeconds, c.endSeconds, captionStyle, mainHook, reaction));
-          const base = { sourcePath: source, fontsDir: FONTS_DIR, mode, facecam, keyMomentSeconds: c.keyMomentSeconds ?? null };
+          const base = { sourcePath: source, fontsDir: FONTS_DIR, mode: clipMode, facecam: clipFacecam, keyMomentSeconds: c.keyMomentSeconds ?? null };
           let out = await renderShort({
             ...base,
             outPath: teaser ? files.main : files.video,
@@ -179,7 +214,9 @@ export class RenderService {
                 fileSizeBytes: out.sizeBytes,
                 width: SHORT_WIDTH,
                 height: SHORT_HEIGHT,
-                reframingMode: mode,
+                reframingMode: clipMode,
+                shortStyle: chosen?.style ?? null,
+                styleReason: chosen?.reason ?? null,
                 renderedAt: new Date(),
                 lastError: null,
               },
@@ -187,7 +224,7 @@ export class RenderService {
           );
           await this.removeOlderVersions(c._id, version);
           rendered++;
-          logger?.info({ liveSessionId: sessionId, clipId, version, sizeBytes: out.sizeBytes, mode }, 'Short rendered');
+          logger?.info({ liveSessionId: sessionId, clipId, version, sizeBytes: out.sizeBytes, mode: clipMode, style: chosen }, 'Short rendered');
         } catch (err) {
           failed++;
           await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { renderStatus: RenderStatus.RENDER_FAILED, lastError: (err as Error).message.slice(0, 500) } });
@@ -210,6 +247,20 @@ export class RenderService {
    * stored so later renders don't ask again. Detection errors are not
    * stored, so the next render retries.
    */
+  /** Is the streamer's webcam showing during this clip? (Cut-scenes, hidden cams, BRB screens.) */
+  private async faceInClip(sourcePath: string, start: number, end: number, dir: string): Promise<boolean> {
+    if (!this.deps.facecam) return true;
+    try {
+      const frames = await extractFrames(sourcePath, [0.3, 0.7].map((p) => start + p * (end - start)), dir);
+      return Boolean(await this.deps.facecam.detect(frames));
+    } catch (err) {
+      this.deps.logger?.warn({ err: (err as Error).message }, 'Face check failed; assuming the webcam is visible');
+      return true;
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
   private async resolveFacecam(sessionId: string, sourcePath: string, durationSeconds: number, work: string): Promise<FrameBox | null> {
     const s = await LiveSessionModel.findById(sessionId).select('facecam').lean();
     const f = s?.facecam;
@@ -302,7 +353,7 @@ export class ClipService {
    * sets the session's layout, and returns how many were removed. Shorts
    * already on YouTube or Instagram are kept so they are never uploaded twice.
    */
-  async resetSession(sessionId: string, reframingMode?: string | null): Promise<{ removed: number; kept: number }> {
+  async resetSession(sessionId: string, reframingMode?: string | null, shortStyle?: string | null): Promise<{ removed: number; kept: number }> {
     const clips = await GeneratedClipModel.find({ liveSessionId: sessionId }).lean();
     let removed = 0;
     let kept = 0;
@@ -318,6 +369,9 @@ export class ClipService {
     }
     const set: Record<string, unknown> = {};
     if (reframingMode !== undefined) set.reframingMode = reframingMode;
+    // A style replaces a fixed layout (and vice versa).
+    if (shortStyle !== undefined) Object.assign(set, { shortStyle, ...(shortStyle ? { reframingMode: null } : {}) });
+    else if (reframingMode) set.shortStyle = null;
     if (Object.keys(set).length) await LiveSessionModel.updateOne({ _id: sessionId }, { $set: set });
     const clipCount = await GeneratedClipModel.countDocuments({ liveSessionId: sessionId, renderStatus: RenderStatus.RENDERED });
     await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { clipCount } });
@@ -364,6 +418,8 @@ export function toClipDTO(c: any): GeneratedClipDTO {
     durationSeconds: c.durationSeconds,
     highlightScore: c.highlightScore ?? null,
     reframingMode: c.reframingMode,
+    shortStyle: (c as { shortStyle?: string | null }).shortStyle ?? null,
+    styleReason: (c as { styleReason?: string | null }).styleReason ?? null,
     renderStatus: c.renderStatus,
     renderVersion: c.renderVersion,
     fileSizeBytes: c.fileSizeBytes ?? null,

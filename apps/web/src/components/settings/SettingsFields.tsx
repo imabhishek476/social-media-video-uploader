@@ -176,6 +176,15 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
             width: 'full',
             options: [opt('MANUAL_APPROVAL', 'I check each Short first', 'Shorts wait in Clip Studio until you press Approve.'), opt('AUTO_PUBLISH', 'Publish automatically', 'Every new Short is approved and scheduled without you.')],
           },
+          {
+            section: 'publishing',
+            key: 'focusLanguage',
+            label: 'Channel language',
+            kind: 'select',
+            width: 'full',
+            options: [opt('', 'Any language'), opt('en', 'English only'), opt('hi', 'Hindi only')],
+            helper: 'One language per channel helps YouTube find the right viewers. Shorts in other languages are never approved automatically and are left out of the weekly video.',
+          },
         ],
       },
       {
@@ -254,6 +263,46 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
         ],
       },
       {
+        title: 'Weekly compilation',
+        description: 'Once a week, your most-watched Shorts are joined into one long video (about 10 minutes, with chapters). Long videos earn more per view and count toward watch hours.',
+        fields: [
+          {
+            section: 'publishing',
+            key: 'weeklyCompilation',
+            label: 'Make a weekly “best of” video',
+            kind: 'cards',
+            width: 'full',
+            options: [opt('ON', 'On (recommended)', 'Built and uploaded automatically. You can also build it now on the Schedule page.'), opt('OFF', 'Off')],
+          },
+          {
+            section: 'publishing',
+            key: 'compilationDay',
+            label: 'Day',
+            kind: 'select',
+            options: [opt('Sun', 'Sunday'), opt('Mon', 'Monday'), opt('Tue', 'Tuesday'), opt('Wed', 'Wednesday'), opt('Thu', 'Thursday'), opt('Fri', 'Friday'), opt('Sat', 'Saturday')],
+            showIf: (d) => d.publishing.weeklyCompilation !== 'OFF',
+          },
+          {
+            section: 'publishing',
+            key: 'compilationHour',
+            label: 'Time',
+            kind: 'select',
+            numeric: true,
+            options: [12, 14, 16, 17, 18, 19, 20, 21].map((h) => opt(h, `${((h + 11) % 12) + 1}:00 ${h < 12 ? 'AM' : 'PM'}`)),
+            showIf: (d) => d.publishing.weeklyCompilation !== 'OFF',
+          },
+          {
+            section: 'publishing',
+            key: 'compilationMinShorts',
+            label: 'Only if the week has at least',
+            kind: 'select',
+            numeric: true,
+            options: [opt(5, '5 public Shorts'), opt(8, '8 public Shorts'), opt(12, '12 public Shorts'), opt(16, '16 public Shorts')],
+            showIf: (d) => d.publishing.weeklyCompilation !== 'OFF',
+          },
+        ],
+      },
+      {
         title: 'Comments',
         description: 'Comments help YouTube show a Short to more people.',
         fields: [
@@ -321,22 +370,23 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
     label: 'Short style',
     groups: [
       {
-        title: 'Layout',
-        description: 'How the stream fits into the tall Short.',
+        title: 'Style',
+        description: 'The look of each Short. On Auto, the app picks a style for every moment.',
         fields: [
           {
             section: 'clips',
-            key: 'reframingMode',
-            label: 'Layout',
+            key: 'shortStyle',
+            label: 'Style',
             kind: 'cards',
             width: 'full',
             options: [
-              opt('FACECAM_SPLIT', 'Split screen', 'Streamer’s webcam on top, game below.', LAYOUT_PICS.FACECAM_SPLIT),
-              opt('GAMEPLAY', 'Game + small webcam', 'Game fills the screen, webcam in a corner.', LAYOUT_PICS.GAMEPLAY),
-              opt('BLUR_FIT', 'Whole picture', 'Nothing cut off; blurred edges above and below.', LAYOUT_PICS.BLUR_FIT),
-              opt('CENTER_CROP', 'Middle only', 'Zooms into the middle of the stream.', LAYOUT_PICS.CENTER_CROP),
+              opt('AUTO', 'Auto (recommended)', 'Picks per moment: talking with a visible face → Reaction; little talking → Clean gameplay; a story beat → Story; otherwise Gameplay.'),
+              opt('REACTION', 'Reaction', 'Webcam on top, game below, captions, hook and reaction sticker.', LAYOUT_PICS.FACECAM_SPLIT),
+              opt('GAMEPLAY', 'Gameplay', 'Game full screen with a small webcam corner, captions low, hook.', LAYOUT_PICS.GAMEPLAY),
+              opt('CLEAN', 'Clean gameplay', 'Only the game and its sound. No webcam, captions, hook or sticker.', LAYOUT_PICS.CENTER_CROP),
+              opt('STORY', 'Story', 'Game full screen with a title at the top for the whole Short; no word captions.', LAYOUT_PICS.CENTER_CROP),
             ],
-            helper: 'If no webcam is found, split screen shows the whole picture and “Game + small webcam” shows the middle.',
+            helper: 'If the webcam isn’t showing in a clip, Reaction and Gameplay use the full game picture instead. A streamer can have their own style (Streamers → Edit).',
           },
           {
             section: 'clips',
@@ -636,7 +686,11 @@ export function FieldInput({ field, draft, canEdit, onChange }: { field: FieldDe
       type={field.kind === 'number' ? 'number' : field.kind === 'color' ? 'color' : 'text'}
       helperText={field.helper}
       onChange={(e) => onChange(e.target.value)}
-      slotProps={{ input: field.unit ? { endAdornment: <Typography variant="caption" color="text.secondary">{field.unit}</Typography> } : undefined }}
+      slotProps={{
+        input: field.unit ? { endAdornment: <Typography variant="caption" color="text.secondary">{field.unit}</Typography> } : undefined,
+        // Show the label of an empty-value choice (e.g. "Any language") instead of a blank box.
+        ...(field.kind === 'select' ? { select: { displayEmpty: true }, inputLabel: { shrink: true } } : {}),
+      }}
     >
       {options?.map((o) => (
         <MenuItem key={o.value} value={o.value}>

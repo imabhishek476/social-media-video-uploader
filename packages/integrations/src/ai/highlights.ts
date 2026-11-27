@@ -14,6 +14,7 @@ export const HighlightOutput = z.object({
       hook: z.string().describe('On-screen hook shown on the video: 2-6 punchy words a scroller instantly gets, e.g. HE GOT ME, 1 VS 3, CHAT WAS RIGHT, NO WAY THAT WORKED. What was said at the moment, or the name of what happened. No hashtags, no emoji'),
       reaction: z.string().describe('Our channel\'s own short reaction to the moment, shown as a sticker on the video: 3-8 words, witty, first person or about the streamer, e.g. "He really thought that would work 💀", "Chat called it 😭". One emoji at most').optional(),
       comment_question: z.string().describe('A question for viewers to answer in the comments about this exact moment, under 12 words, e.g. "Would you have pressed the button? 👇"').optional(),
+      moment_type: z.enum(['reaction', 'action', 'story']).describe('reaction = the streamer talking/reacting is the point; action = gameplay skill, clutch or chaos is the point; story = a mission or story beat that plays out over the clip').optional(),
       reason: z.string().describe('One or two sentences: why this works as a standalone Short'),
       topic: z.string().describe('2-4 word topic label'),
       hook_score: z.number().describe('0-100: do the first 3 seconds grab attention?'),
@@ -156,6 +157,7 @@ export function mapHighlightOutput(parsed: z.infer<typeof HighlightOutput>): Raw
       hook: h.hook,
       reaction: h.reaction?.trim() || null,
       commentQuestion: h.comment_question?.trim() || null,
+      momentType: h.moment_type ?? null,
       reason: h.reason,
       topic: h.topic || null,
   }));

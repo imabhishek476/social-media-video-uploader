@@ -31,6 +31,7 @@ const highlightCandidateSchema = new Schema(
     hook: { type: String, default: '' },
     reaction: { type: String, default: null },
     commentQuestion: { type: String, default: null },
+    momentType: { type: String, default: null },
     topic: { type: String, default: null },
     transcriptExcerpt: { type: String, default: '' },
     status: { type: String, enum: enumValues(CandidateStatus), default: CandidateStatus.CANDIDATE },

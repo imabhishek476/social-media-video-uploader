@@ -233,6 +233,11 @@ export class PublishService {
     const { publishing } = (await this.deps.settings.getValues()).values;
     if (publishing.mode === PublishingMode.AUTO_PUBLISH) {
       const pending = await GeneratedClipModel.find({ liveSessionId: sessionId, renderStatus: RenderStatus.RENDERED, approvalStatus: ApprovalStatus.PENDING, title: { $ne: '' } }).lean();
+      const focus = await focusLanguageMismatch(sessionId, publishing.focusLanguage);
+      if (focus) {
+        this.deps.logger?.info({ sessionId, language: focus }, 'Not auto-approved: different language from the channel focus');
+        return { generated, autoApproved, failed };
+      }
       for (const c of pending) {
         try {
           await this.approve(String(c._id), null);
@@ -313,6 +318,19 @@ export class PublishService {
     if (!clip) throw DomainError.notFound('Clip');
     return clip;
   }
+}
+
+/**
+ * Channel focus: the session's language when it differs from `focusLanguage`
+ * (streamer preference, else the transcript), or null when it matches / no focus is set.
+ */
+export async function focusLanguageMismatch(sessionId: string, focusLanguage: string): Promise<string | null> {
+  if (!focusLanguage) return null;
+  const session = await LiveSessionModel.findById(sessionId).select('streamerChannelId').lean();
+  const streamer = session ? await StreamerChannelModel.findById(session.streamerChannelId).select('preferences.language').lean() : null;
+  const transcript = await TranscriptModel.findOne({ liveSessionId: sessionId }).select('language').lean();
+  const lang = (streamer?.preferences?.language || languageCode(transcript?.language) || '').toLowerCase().slice(0, 2);
+  return lang && lang !== focusLanguage.toLowerCase().slice(0, 2) ? lang : null;
 }
 
 export async function enqueueMetadata(queues: QueueRegistry, sessionId: string, reason: string) {

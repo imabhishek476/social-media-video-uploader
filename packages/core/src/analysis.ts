@@ -296,6 +296,7 @@ export class AnalysisService {
         hook: h.hook,
         reaction: h.reaction ?? null,
         commentQuestion: h.commentQuestion ?? null,
+        momentType: h.momentType ?? null,
         topic: h.topic,
         transcriptExcerpt: excerpt(segments, h.startSeconds, h.endSeconds),
         status,

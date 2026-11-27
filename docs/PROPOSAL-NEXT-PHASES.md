@@ -8,6 +8,7 @@ This proposal turns the ideas in `Future-Features.log` into an ordered build pla
 |---|---|---|---|
 | 8 | Scheduled publishing at the best time | Fastest win; most of the plumbing exists | S (2–3 days) |
 | **8.5** | **Growth & monetization** (cold-open cuts, loops, Shorts analytics, niche focus, comments, weekly compilation, originality layer) | Videos aren't getting views; fix reach before automating more. See `docs/GROWTH-STRATEGY.md` | M (5–7 days) |
+| **8.6** | **Short styles, picked per moment** (Reaction, Gameplay, Clean gameplay, Story; face check; Auto) | Autopilot needs the app to choose the look of each Short itself | S–M (3–4 days) |
 | 9 | Autopilot (no clicks) | Removes daily manual work; needs Phase 8's schedule | S–M (3–4 days) |
 | 10 | Categories and presets | Lets autopilot use the right style per content type | M (4–5 days) |
 | 11 | Any YouTube video ("Video clipper") | New content source beyond streams; uses Phase 10 presets | M (5–6 days) |
@@ -62,6 +63,38 @@ Sizes are working days for one developer, including tests.
 - Approved Shorts get slots automatically and appear in the calendar.
 - They go Public at the slot time on YouTube.
 - Moving a Short in the calendar updates YouTube.
+
+---
+
+## Phase 8.6: Short styles, picked per moment
+
+**Goal:** every Short gets the look that suits *that* moment, with no one choosing. Some moments have no streamer face, and some should just show the gameplay with no hook or captions.
+
+**Styles:**
+
+| Style | Layout | Hook | Word captions | Reaction sticker | For |
+|---|---|---|---|---|---|
+| **Reaction** | Webcam on top, gameplay below | Yes | Yes | Yes | The streamer talking or reacting |
+| **Gameplay** | Game full screen, small webcam corner (if there is one) | Yes | Yes, low | Yes | Action with some talking |
+| **Clean gameplay** | Game full screen, no webcam | No | No | No | Skill moments, cinematic parts; game audio only |
+| **Story** | Game full screen | Title card for the whole Short | No | No | Missions or story beats told over 20–40 s |
+
+**How Auto decides (for each Short):**
+1. The AI labels each moment: *reaction*, *action* or *story*.
+2. **Face check:** frames from inside the clip are checked for the webcam. No face in this clip means no webcam layout, even if the stream normally has one.
+3. **Talk check:** words per second from the transcript. Almost no talking means Clean gameplay.
+4. Rules: story → Story; little talking → Clean gameplay; reaction with a face → Reaction; otherwise Gameplay.
+5. The style and the reason are saved on the Short ("Clean gameplay: 0.2 words/s").
+
+**Who wins (most specific first):**
+1. The style chosen when regenerating a session's Shorts.
+2. A per-streamer style (e.g. a streamer with no webcam: always Gameplay).
+3. Settings → Short style → *Style*: Auto (default) or one fixed style.
+4. Global switches still apply (hook off means no hook in any style).
+
+**Later:** Story text cards between scenes; per-style analytics feed the Phase 14 learning loop; Phase 10 categories set the style per category.
+
+**Done when:** with Auto, a stream produces Shorts in different styles that match each moment, and a stream without a webcam never gets an empty webcam band.
 
 ---
 

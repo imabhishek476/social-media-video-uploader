@@ -78,10 +78,13 @@ export function createClipRoutes(clips: ClipService, storage: ObjectStorage, que
     const modes = ['CENTER_CROP', 'BLUR_FIT', 'FACECAM_SPLIT', 'GAMEPLAY'];
     const mode = req.body?.reframingMode;
     if (mode !== undefined && mode !== null && !modes.includes(mode)) throw new DomainError('VALIDATION_ERROR', `reframingMode must be one of ${modes.join(', ')}`, 400);
+    const styles = ['AUTO', 'REACTION', 'GAMEPLAY', 'CLEAN', 'STORY'];
+    const style = req.body?.shortStyle;
+    if (style !== undefined && style !== null && !styles.includes(style)) throw new DomainError('VALIDATION_ERROR', `shortStyle must be one of ${styles.join(', ')}`, 400);
     let reset: { removed: number; kept: number } | null = null;
-    if (fresh) reset = await clips.resetSession(id, mode === undefined ? undefined : mode);
+    if (fresh) reset = await clips.resetSession(id, mode === undefined ? undefined : mode, style === undefined ? undefined : style);
     await enqueueRender(queues, id, `manual-${Date.now()}`, force || fresh);
-    await recordAudit(req, { action: 'session.render', entityType: 'LiveSession', entityId: id, metadata: { force, fresh, mode, reset } });
+    await recordAudit(req, { action: 'session.render', entityType: 'LiveSession', entityId: id, metadata: { force, fresh, mode, style, reset } });
     res.status(202).json({ queued: true, ...(reset ?? {}) });
   });
 

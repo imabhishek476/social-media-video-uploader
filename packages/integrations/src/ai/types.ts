@@ -57,6 +57,8 @@ export interface RawHighlight {
   reaction?: string | null;
   /** Question for viewers, posted as the first comment. */
   commentQuestion?: string | null;
+  /** reaction / action / story: drives the Short style in Auto. */
+  momentType?: 'reaction' | 'action' | 'story' | null;
   reason: string;
   topic: string | null;
 }

@@ -321,6 +321,7 @@ export function toSessionDTO(s: any, storedIn?: 'local' | 'gcs'): LiveSessionDTO
     highlightCount: s.highlightCount ?? 0,
     facecam: s.facecam?.source ? { x: s.facecam.x ?? 0, y: s.facecam.y ?? 0, w: s.facecam.w ?? 0, h: s.facecam.h ?? 0, source: s.facecam.source } : null,
     reframingMode: (s as { reframingMode?: string | null }).reframingMode ?? null,
+    shortStyle: (s as { shortStyle?: string | null }).shortStyle ?? null,
     clipCount: s.clipCount ?? 0,
     estimatedCostUsd: Math.round((s.estimatedCostUsd ?? 0) * 10000) / 10000,
     reprocessCount: s.reprocessCount ?? 0,

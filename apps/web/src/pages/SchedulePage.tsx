@@ -11,7 +11,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import type { ScheduledShortDTO } from '@shorts/shared-types';
 import { describeError } from '../api/client';
-import { usePublishNow, useRescheduleClip, useSchedule } from '../api/hooks';
+import { useBuildCompilation, useCompilations, usePublishNow, useRescheduleClip, useSchedule } from '../api/hooks';
 import { PageHeader } from '../components/PageHeader';
 
 /** yyyy-MM-ddTHH:mm in the browser's time zone, for <input type="datetime-local">. */
@@ -95,6 +95,62 @@ function Row({ item }: { item: ScheduledShortDTO }) {
   );
 }
 
+const COMPILATION_STATUS: Record<string, { label: string; color: 'success' | 'info' | 'warning' | 'error' | 'default' }> = {
+  PUBLISHED: { label: 'Published', color: 'success' },
+  BUILDING: { label: 'Building…', color: 'info' },
+  UPLOADING: { label: 'Uploading…', color: 'info' },
+  SKIPPED: { label: 'Skipped', color: 'warning' },
+  FAILED: { label: 'Failed', color: 'error' },
+};
+
+/** Weekly "best of" long videos, with a button to build this week's now. */
+function Compilations() {
+  const list = useCompilations();
+  const build = useBuildCompilation();
+  return (
+    <Card variant="outlined" sx={{ p: 2, mt: 4 }}>
+      <Stack direction="row" sx={{ alignItems: 'center', mb: 1 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
+          Weekly compilations
+        </Typography>
+        <Button size="small" variant="outlined" disabled={build.isPending} onClick={() => build.mutate()}>
+          {build.isSuccess ? 'Building in the background…' : 'Build this week’s now'}
+        </Button>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        Your most-watched Shorts of the week joined into one long video with chapters. Settings → YouTube → Weekly compilation.
+      </Typography>
+      {build.isError && <Alert severity="error">{describeError(build.error)}</Alert>}
+      {!list.data?.items.length && <Typography variant="body2">None yet.</Typography>}
+      <Stack spacing={1}>
+        {list.data?.items.map((c) => {
+          const st = COMPILATION_STATUS[c.status] ?? { label: c.status, color: 'default' as const };
+          return (
+            <Stack key={c.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
+              <Chip size="small" color={st.color} label={st.label} />
+              <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                {c.title || `Week of ${c.weekKey}`}
+                {c.clipCount ? ` · ${c.clipCount} Shorts` : ''}
+                {c.durationSeconds ? ` · ${Math.round(c.durationSeconds / 60)} min` : ''}
+                {c.lastError && (
+                  <Typography component="span" variant="caption" color={c.status === 'FAILED' ? 'error' : 'text.secondary'} sx={{ display: 'block' }}>
+                    {c.lastError}
+                  </Typography>
+                )}
+              </Typography>
+              {c.youtubeUrl && (
+                <Button size="small" href={c.youtubeUrl} target="_blank" rel="noreferrer">
+                  Open
+                </Button>
+              )}
+            </Stack>
+          );
+        })}
+      </Stack>
+    </Card>
+  );
+}
+
 /** Phase 8: when each approved Short goes public. */
 export function SchedulePage() {
   const schedule = useSchedule(14);
@@ -137,6 +193,7 @@ export function SchedulePage() {
           </div>
         ))}
       </Stack>
+      <Compilations />
     </>
   );
 }

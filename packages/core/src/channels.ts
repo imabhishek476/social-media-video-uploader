@@ -220,6 +220,7 @@ export function toStreamerDTO(c: any): StreamerDTO {
       maxClipDurationSeconds: p.maxClipDurationSeconds ?? null,
       language: p.language ?? null,
       game: p.game ?? null,
+      shortStyle: (p as { shortStyle?: string | null }).shortStyle ?? null,
     },
     monitoringSince: (c.monitoringSince ?? c.createdAt).toISOString(),
     createdAt: c.createdAt.toISOString(),

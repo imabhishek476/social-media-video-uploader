@@ -20,18 +20,22 @@ export class CandidateService {
     const session = await LiveSessionModel.findById(c.liveSessionId).select('sourceMedia.durationSeconds').lean();
     const { clips } = (await this.settings.getValues()).values;
 
-    const start = input.startSeconds ?? c.startSeconds;
-    const end = input.endSeconds ?? c.endSeconds;
-    const sourceSeconds = session?.sourceMedia?.durationSeconds ?? Infinity;
-    if (end <= start) throw new DomainError('VALIDATION_FAILED', 'End must be after start', 400);
-    if (end > sourceSeconds + 0.5) throw new DomainError('VALIDATION_FAILED', `End is past the end of the recording (${Math.round(sourceSeconds)}s)`, 400);
-    // Trimming below the configured minimum is allowed (a person decided); exceeding the maximum is not.
-    if (end - start > clips.maxDurationSeconds + 0.05) {
-      throw new DomainError('VALIDATION_FAILED', `Clip is ${Math.round(end - start)}s; the maximum is ${clips.maxDurationSeconds}s`, 400);
+    const set: Record<string, unknown> = {};
+    // Length rules only apply to a trim. Select / Discard / Restore must work even on
+    // highlights made before the length limits changed.
+    if (input.startSeconds !== undefined || input.endSeconds !== undefined) {
+      const start = input.startSeconds ?? c.startSeconds;
+      const end = input.endSeconds ?? c.endSeconds;
+      const sourceSeconds = session?.sourceMedia?.durationSeconds ?? Infinity;
+      if (end <= start) throw new DomainError('VALIDATION_FAILED', 'End must be after start', 400);
+      if (end > sourceSeconds + 0.5) throw new DomainError('VALIDATION_FAILED', `End is past the end of the recording (${Math.round(sourceSeconds)}s)`, 400);
+      // Trimming below the configured minimum is allowed (a person decided); exceeding the maximum is not.
+      if (end - start > clips.maxDurationSeconds + 0.05) {
+        throw new DomainError('VALIDATION_FAILED', `Clip is ${Math.round(end - start)}s; the maximum is ${clips.maxDurationSeconds}s`, 400);
+      }
+      if (end - start < 5) throw new DomainError('VALIDATION_FAILED', 'Clip must be at least 5 seconds', 400);
+      Object.assign(set, { userAdjusted: true, startSeconds: Math.round(start * 10) / 10, endSeconds: Math.round(end * 10) / 10 });
     }
-    if (end - start < 5) throw new DomainError('VALIDATION_FAILED', 'Clip must be at least 5 seconds', 400);
-
-    const set: Record<string, unknown> = { userAdjusted: true, startSeconds: Math.round(start * 10) / 10, endSeconds: Math.round(end * 10) / 10 };
     if (input.status) {
       set.status = input.status;
       set.discardReason = input.status === CandidateStatus.DISCARDED ? (input.discardReason ?? 'Discarded in Clip Studio') : null;

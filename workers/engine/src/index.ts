@@ -21,6 +21,7 @@ import {
   recoverStuckSessions,
   refreshVideoStats,
   postFirstComments,
+  CompilationService,
   sweepClipFiles,
   sweepDoneSources,
   sweepTranscripts,
@@ -401,6 +402,17 @@ const ROLES: Record<string, RoleDefinition> = {
                   if (/reconnect/i.test((err as Error).message)) await services.notify.youtubeReconnect((err as Error).message);
                   throw err;
                 }
+              case 'weekly-compilation': {
+                const compilation = new CompilationService({
+                  settings: services.settings,
+                  storage: services.storage,
+                  account: services.account,
+                  uploader: new GoogleYouTubeUploader(),
+                  workDir: path.join(config.worker.storageDir, 'tmp'),
+                  logger,
+                });
+                return { result: (data as { force?: boolean }).force ? await compilation.build({ force: true }) : await compilation.runIfDue() };
+              }
               case 'first-comments':
                 try {
                   return await postFirstComments({ account: services.account, settings: services.settings, logger });
@@ -425,6 +437,7 @@ const ROLES: Record<string, RoleDefinition> = {
       );
       await queues.get(queueName).upsertJobScheduler('expired-source-sweep', { every: 60 * 60 * 1000 }, { name: 'sweep-sources', data: {} });
       await queues.get(queueName).upsertJobScheduler('stuck-session-watchdog', { every: 15 * 60 * 1000 }, { name: 'watchdog', data: {}, opts: TICK_JOB_OPTS });
+      await queues.get(queueName).upsertJobScheduler('weekly-compilation', { every: 30 * 60 * 1000 }, { name: 'weekly-compilation', data: {}, opts: TICK_JOB_OPTS });
       await queues.get(queueName).upsertJobScheduler('first-comments', { every: 10 * 60 * 1000 }, { name: 'first-comments', data: {}, opts: TICK_JOB_OPTS });
       await queues.get(queueName).upsertJobScheduler('youtube-stats', { every: 3 * 60 * 60 * 1000 }, { name: 'refresh-stats', data: {}, opts: TICK_JOB_OPTS });
       logger.info({ queue: queueName, tempDir }, 'Cleanup role started (hourly schedule)');

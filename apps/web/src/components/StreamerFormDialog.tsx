@@ -11,6 +11,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Grid from '@mui/material/Grid';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
@@ -20,18 +21,28 @@ import type { StreamerDTO, StreamerPreferencesInput } from '@shorts/shared-types
 import { ApiError, describeError } from '../api/client';
 import { useCreateStreamer, useUpdateStreamer } from '../api/hooks';
 
-const PREF_FIELDS: Array<{ key: keyof StreamerPreferencesInput; label: string; kind: 'number' | 'text'; helper?: string }> = [
+const PREF_FIELDS: Array<{ key: keyof StreamerPreferencesInput; label: string; kind: 'number' | 'text' | 'select'; helper?: string }> = [
   { key: 'maxClipsPerStream', label: 'Max clips per stream', kind: 'number' },
   { key: 'minHighlightScore', label: 'Min highlight score', kind: 'number', helper: '0–100' },
   { key: 'minClipDurationSeconds', label: 'Min clip duration (s)', kind: 'number' },
   { key: 'maxClipDurationSeconds', label: 'Max clip duration (s)', kind: 'number' },
   { key: 'language', label: 'Language', kind: 'text', helper: 'en = local speech model; hi etc. = Groq Whisper' },
   { key: 'game', label: 'Main game', kind: 'text', helper: 'Optional, e.g. GTA 6, BGMI. Otherwise read from each stream title' },
+  { key: 'shortStyle', label: 'Short style', kind: 'select', helper: 'e.g. Gameplay for a streamer with no webcam' },
+];
+
+const STYLE_OPTIONS = [
+  { value: '', label: 'Follow Settings' },
+  { value: 'AUTO', label: 'Auto (per moment)' },
+  { value: 'REACTION', label: 'Reaction' },
+  { value: 'GAMEPLAY', label: 'Gameplay' },
+  { value: 'CLEAN', label: 'Clean gameplay' },
+  { value: 'STORY', label: 'Story' },
 ];
 
 type PrefDraft = Record<keyof StreamerPreferencesInput, string>;
 
-const emptyPrefs = (): PrefDraft => ({ maxClipsPerStream: '', minHighlightScore: '', minClipDurationSeconds: '', maxClipDurationSeconds: '', language: '', game: '' });
+const emptyPrefs = (): PrefDraft => ({ maxClipsPerStream: '', minHighlightScore: '', minClipDurationSeconds: '', maxClipDurationSeconds: '', language: '', game: '', shortStyle: '' });
 
 function toPrefs(d: PrefDraft): StreamerPreferencesInput {
   const out: Record<string, number | string | null> = {};
@@ -172,11 +183,21 @@ export function StreamerFormDialog({ open, streamer, onClose, onSaved }: Streame
                       fullWidth
                       label={f.label}
                       type={f.kind === 'number' ? 'number' : 'text'}
+                      select={f.kind === 'select'}
+                      slotProps={f.kind === 'select' ? { select: { displayEmpty: true }, inputLabel: { shrink: true } } : undefined}
                       value={prefs[f.key]}
                       placeholder="Default"
                       helperText={f.helper}
                       onChange={(e) => setPrefs((p) => ({ ...p, [f.key]: e.target.value }))}
-                    />
+                    >
+                      {f.kind === 'select'
+                        ? STYLE_OPTIONS.map((o) => (
+                            <MenuItem key={o.value} value={o.value}>
+                              {o.label}
+                            </MenuItem>
+                          ))
+                        : null}
+                    </TextField>
                   </Grid>
                 ))}
               </Grid>

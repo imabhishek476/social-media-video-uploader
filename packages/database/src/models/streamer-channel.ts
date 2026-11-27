@@ -14,6 +14,8 @@ const preferencesSchema = new Schema(
     language: { type: String, default: null },
     /** Game this streamer plays, if fixed (otherwise read from each stream title). */
     game: { type: String, default: null },
+    /** Short style for this streamer (null = follow Settings). */
+    shortStyle: { type: String, default: null },
   },
   { _id: false },
 );
