@@ -60,6 +60,18 @@ export function PublishPanel({ clip, canEdit }: { clip: GeneratedClipDTO; canEdi
           {clip.goLiveAt && new Date(clip.goLiveAt).getTime() > Date.now()
             ? `Uploaded. Goes public ${formatDateTime(clip.goLiveAt)} (see Schedule).`
             : `Published ${formatDateTime(clip.publishedAt)}${privacy ? ` as ${privacy}` : ''}.`}
+          {clip.stats && (
+            <Typography variant="body2" component="p" sx={{ mt: 0.5 }}>
+              {`${clip.stats.views.toLocaleString()} views · ${clip.stats.likes} likes`}
+              {clip.stats.averageViewPercentage != null && ` · watched ${Math.round(clip.stats.averageViewPercentage)}% on average`}
+              {clip.stats.subscribersGained != null && ` · +${clip.stats.subscribersGained} subscribers`}
+            </Typography>
+          )}
+          {clip.firstComment && (
+            <Typography variant="caption" component="p" color={clip.firstComment.status === 'FAILED' ? 'error' : 'text.secondary'}>
+              {clip.firstComment.status === 'POSTED' ? `First comment: “${clip.firstComment.text}”` : `First comment not posted: ${clip.firstComment.lastError ?? ''}`}
+            </Typography>
+          )}
         </Alert>
       )}
       {clip.uploadStatus === 'QUEUED' && (

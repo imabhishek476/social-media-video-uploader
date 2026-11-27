@@ -32,6 +32,8 @@ export const appSettingsSchema = z.object({
     maxClipsPerStream: z.number().int().min(1).max(50),
     minHighlightScore: z.number().int().min(0).max(100),
     reframingMode: z.enum(enumValues(ReframingMode) as [ReframingMode, ...ReframingMode[]]),
+    /** Start each Short with a ~2 s flash-forward of its best moment. */
+    coldOpen: z.enum(['ON', 'OFF']),
   }),
   subtitles: z.object({
     language: z.string().trim().min(2).max(10),
@@ -44,6 +46,8 @@ export const appSettingsSchema = z.object({
     captionStyle: z.enum(['STREAMER', 'HYPE', 'BOUNCE', 'CLEAN', 'CUSTOM']),
     /** Hook text box at the top: whole clip, first 4 s, or off. */
     hookOverlay: z.enum(['ALWAYS', 'INTRO', 'OFF']),
+    /** Our own reaction line on a sticker (makes the Short clearly our edit). */
+    reactionSticker: z.enum(['ON', 'OFF']),
   }),
   publishing: z.object({
     mode: z.enum(enumValues(PublishingMode) as [PublishingMode, ...PublishingMode[]]),
@@ -64,6 +68,8 @@ export const appSettingsSchema = z.object({
     }, 'Unknown time zone (use an IANA name like Asia/Kolkata)'),
     /** MANUAL: post to Instagram from Clip Studio only; WITH_YOUTUBE: approving a clip also queues the Reel. */
     instagramMode: z.enum(['MANUAL', 'WITH_YOUTUBE']),
+    /** Post a question as the first comment once a Short is public. */
+    firstComment: z.enum(['ON', 'OFF']),
     /** When a Reel is posted: at its YouTube Short's scheduled time, or straight away. */
     instagramTiming: z.enum(['SAME_AS_YOUTUBE', 'IMMEDIATE']),
     /**

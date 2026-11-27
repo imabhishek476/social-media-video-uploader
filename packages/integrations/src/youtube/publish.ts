@@ -3,7 +3,15 @@ import fsp from 'node:fs/promises';
 
 /** Scopes for uploading to, and identifying, the central channel. */
 /** upload + read, plus `youtube` (manage videos) so scheduled Shorts can be moved or published early. */
-export const YOUTUBE_SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/youtube'];
+export const YOUTUBE_SCOPES = [
+  'https://www.googleapis.com/auth/youtube.upload',
+  'https://www.googleapis.com/auth/youtube.readonly',
+  'https://www.googleapis.com/auth/youtube',
+  // Posting comments (commentThreads.insert) needs force-ssl.
+  'https://www.googleapis.com/auth/youtube.force-ssl',
+  // Per-Short retention and subscribers gained (YouTube Analytics API).
+  'https://www.googleapis.com/auth/yt-analytics.readonly',
+];
 
 export class YouTubePublishError extends Error {
   constructor(
@@ -299,6 +307,50 @@ export async function setVideoSchedule(videoId: string, publishAt: Date | null, 
     throw new YouTubePublishError('UNAVAILABLE', `YouTube API unreachable: ${err.message}`, true);
   });
   if (!res.ok) throw await googleError(res, 'YouTube videos.update');
+}
+
+/** Post a top-level comment on a video as the channel (commentThreads.insert, ~50 quota units). Returns the comment id. */
+export async function postComment(videoId: string, text: string, accessToken: string, apiBase = 'https://www.googleapis.com/youtube/v3'): Promise<string> {
+  const res = await fetch(`${apiBase}/commentThreads?part=snippet`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snippet: { videoId, topLevelComment: { snippet: { textOriginal: text } } } }),
+    signal: AbortSignal.timeout(30_000),
+  }).catch((err: Error) => {
+    throw new YouTubePublishError('UNAVAILABLE', `YouTube API unreachable: ${err.message}`, true);
+  });
+  if (!res.ok) throw await googleError(res, 'YouTube commentThreads.insert');
+  return ((await res.json()) as { id: string }).id;
+}
+
+export interface VideoAnalytics {
+  id: string;
+  /** Average % of the Short watched (can exceed 100 with rewatches). */
+  averageViewPercentage: number;
+  averageViewDurationSeconds: number;
+  subscribersGained: number;
+  shares: number;
+}
+
+/**
+ * Retention and subscribers per video from the YouTube Analytics API (needs the
+ * yt-analytics.readonly permission). Data lags YouTube Studio by a day or two.
+ */
+export async function fetchVideoAnalytics(ids: string[], accessToken: string, today = new Date(), apiBase = 'https://youtubeanalytics.googleapis.com/v2'): Promise<VideoAnalytics[]> {
+  if (!ids.length) return [];
+  const q = new URLSearchParams({
+    ids: 'channel==MINE',
+    startDate: '2020-01-01',
+    endDate: today.toISOString().slice(0, 10),
+    metrics: 'averageViewPercentage,averageViewDuration,subscribersGained,shares',
+    dimensions: 'video',
+    filters: `video==${ids.slice(0, 200).join(',')}`,
+    maxResults: '200',
+  });
+  const res = await fetch(`${apiBase}/reports?${q}`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw await googleError(res, 'YouTube Analytics reports');
+  const d = (await res.json()) as { rows?: Array<[string, number, number, number, number]> };
+  return (d.rows ?? []).map(([id, pct, dur, subs, shares]) => ({ id, averageViewPercentage: pct, averageViewDurationSeconds: dur, subscribersGained: subs, shares }));
 }
 
 export const youtubeShortUrl = (videoId: string) => `https://www.youtube.com/shorts/${videoId}`;

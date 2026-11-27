@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssCaptions, hookLines, parseFreezes, presetStyle, staticShare, videoFilter, captionAnchor } from '../src';
+import { buildAssCaptions, hookLines, parseFreezes, presetStyle, staticShare, videoFilter, captionAnchor, coldOpenRange } from '../src';
 
 const base = { fontFamily: 'Montserrat', fontSize: 84, primaryColor: '#FFFFFF', highlightColor: '#FFD400', position: 'MIDDLE' as const };
 const seg = [{ startSeconds: 10, endSeconds: 12, text: 'no way bro', words: [
@@ -72,5 +72,22 @@ describe('streamer captions and layout-aware placement', () => {
 
   it('split layout draws the white divider', () => {
     expect(videoFilter('FACECAM_SPLIT', null, { x: 0, y: 0, w: 0.2, h: 0.2 })).toContain('drawbox=x=0:y=896');
+  });
+});
+
+describe('phase 8.5: cold open and reaction sticker', () => {
+  it('flash-forwards only when there is build-up before the key moment', () => {
+    expect(coldOpenRange(100, 130, 112)).toEqual({ start: 111.6, end: 113.6 });
+    expect(coldOpenRange(100, 130, 103)).toBeNull(); // payoff right at the start
+    expect(coldOpenRange(100, 130, 129.5)).toBeNull(); // payoff at the very end
+    expect(coldOpenRange(100, 130, null)).toBeNull();
+  });
+
+  it('adds the reaction sticker from its start time, without emoji', () => {
+    const ass = buildAssCaptions(seg, 10, 20, presetStyle('STREAMER', base), null, { text: 'He really thought that would work 💀', fromSeconds: 2.5, at: 'TOP' });
+    const line = ass.split('\n').find((l) => l.includes(',Reaction,'))!;
+    expect(line).toMatch(/^Dialogue: 2,0:00:02\.50,0:00:10\.00,Reaction/);
+    expect(line).toContain('He really thought that would work');
+    expect(line).not.toContain('💀');
   });
 });

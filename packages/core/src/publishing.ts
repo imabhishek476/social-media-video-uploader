@@ -35,7 +35,8 @@ const STATE_TTL_SECONDS = 10 * 60;
  * token is stored AES-256-GCM encrypted; access tokens live only in memory.
  */
 export class YouTubeAccountService {
-  private cached: { token: string; expiresAt: number } | null = null;
+  /** Access token plus which connection it came from (a reconnect elsewhere invalidates it). */
+  private cached: { token: string; expiresAt: number; connectedAt?: number } | null = null;
 
   constructor(
     private readonly deps: { oauth: YouTubeOAuthClient | null; redis: Redis; encryptionKey?: string; logger?: Logger },
@@ -101,13 +102,16 @@ export class YouTubeAccountService {
 
   /** A valid access token, refreshed when needed. */
   async accessToken(): Promise<string> {
-    if (this.cached && this.cached.expiresAt > Date.now()) return this.cached.token;
+    // Cheap check so a reconnect done in another process (API vs worker) takes effect at once.
+    const current = await IntegrationCredentialModel.findOne({ provider: PROVIDER }).select('connectedAt status').lean();
+    const connectedAt = current?.connectedAt?.getTime();
+    if (this.cached && this.cached.expiresAt > Date.now() && current?.status === 'ACTIVE' && (this.cached.connectedAt === undefined || this.cached.connectedAt === connectedAt)) return this.cached.token;
     const oauth = this.oauth();
     const cred = await IntegrationCredentialModel.findOne({ provider: PROVIDER }).select('+encryptedRefreshToken').lean();
     if (!cred || cred.status !== 'ACTIVE') throw new YouTubePublishError('RECONNECT', 'No YouTube channel is connected. Connect it in Settings.', false);
     try {
       const t = await oauth.refresh(decryptSecret(cred.encryptedRefreshToken, this.deps.encryptionKey!));
-      this.cached = { token: t.accessToken, expiresAt: t.expiresAt };
+      this.cached = { token: t.accessToken, expiresAt: t.expiresAt, connectedAt: cred.connectedAt?.getTime() };
       return t.accessToken;
     } catch (err) {
       if (err instanceof YouTubePublishError && err.code === 'RECONNECT') {

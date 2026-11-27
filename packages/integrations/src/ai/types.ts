@@ -53,6 +53,10 @@ export interface RawHighlight {
   score: number;
   breakdown: ScoreBreakdown;
   hook: string;
+  /** Our channel's own reaction line, shown as a sticker (originality layer). */
+  reaction?: string | null;
+  /** Question for viewers, posted as the first comment. */
+  commentQuestion?: string | null;
   reason: string;
   topic: string | null;
 }

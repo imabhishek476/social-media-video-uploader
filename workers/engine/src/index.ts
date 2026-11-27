@@ -20,6 +20,7 @@ import {
   budgetStatus,
   recoverStuckSessions,
   refreshVideoStats,
+  postFirstComments,
   sweepClipFiles,
   sweepDoneSources,
   sweepTranscripts,
@@ -400,6 +401,13 @@ const ROLES: Record<string, RoleDefinition> = {
                   if (/reconnect/i.test((err as Error).message)) await services.notify.youtubeReconnect((err as Error).message);
                   throw err;
                 }
+              case 'first-comments':
+                try {
+                  return await postFirstComments({ account: services.account, settings: services.settings, logger });
+                } catch (err) {
+                  if (/reconnect/i.test((err as Error).message)) await services.notify.youtubeReconnect((err as Error).message);
+                  throw err;
+                }
               default:
                 return cleanupProcessor(data, ctx);
             }
@@ -417,7 +425,8 @@ const ROLES: Record<string, RoleDefinition> = {
       );
       await queues.get(queueName).upsertJobScheduler('expired-source-sweep', { every: 60 * 60 * 1000 }, { name: 'sweep-sources', data: {} });
       await queues.get(queueName).upsertJobScheduler('stuck-session-watchdog', { every: 15 * 60 * 1000 }, { name: 'watchdog', data: {}, opts: TICK_JOB_OPTS });
-      await queues.get(queueName).upsertJobScheduler('youtube-stats', { every: 6 * 60 * 60 * 1000 }, { name: 'refresh-stats', data: {}, opts: TICK_JOB_OPTS });
+      await queues.get(queueName).upsertJobScheduler('first-comments', { every: 10 * 60 * 1000 }, { name: 'first-comments', data: {}, opts: TICK_JOB_OPTS });
+      await queues.get(queueName).upsertJobScheduler('youtube-stats', { every: 3 * 60 * 60 * 1000 }, { name: 'refresh-stats', data: {}, opts: TICK_JOB_OPTS });
       logger.info({ queue: queueName, tempDir }, 'Cleanup role started (hourly schedule)');
     },
   },

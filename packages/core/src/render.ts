@@ -148,6 +148,27 @@ export async function loudnormFilter(sourcePath: string, start: number, duration
  * captions, normalise loudness for mobile (-14 LUFS), encode H.264/AAC with
  * fast-start, then grab a thumbnail at the key moment.
  */
+/** Join rendered parts (same encoder settings) into one file without re-encoding. */
+export async function concatShorts(parts: string[], outPath: string): Promise<void> {
+  const list = `${outPath}.txt`;
+  await fsp.writeFile(list, parts.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
+  try {
+    await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', outPath], 1);
+  } finally {
+    await fsp.rm(list, { force: true });
+  }
+}
+
+/**
+ * Cold open: a short flash-forward of the best moment before the clip, so the
+ * first second already shows the payoff. Only when there is real build-up
+ * (the key moment is 6+ s in) and the payoff isn't at the very end.
+ */
+export function coldOpenRange(start: number, end: number, keyMoment: number | null | undefined): { start: number; end: number } | null {
+  if (keyMoment == null || keyMoment - start < 6 || end - keyMoment < 1) return null;
+  return { start: Math.max(start, keyMoment - 0.4), end: Math.min(end, keyMoment + 1.6) };
+}
+
 export async function renderShort(spec: RenderSpec, onProgress?: (fraction: number) => void): Promise<{ durationSeconds: number; sizeBytes: number }> {
   const duration = Math.max(0.5, spec.endSeconds - spec.startSeconds);
   const audioFilter = await loudnormFilter(spec.sourcePath, spec.startSeconds, duration);

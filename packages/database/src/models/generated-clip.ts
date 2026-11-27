@@ -50,7 +50,26 @@ const generatedClipSchema = new Schema(
 
     /** YouTube statistics, refreshed periodically after publishing. */
     stats: {
-      type: new Schema({ views: Number, likes: Number, comments: Number, privacyStatus: String, fetchedAt: Date }, { _id: false }),
+      type: new Schema(
+        {
+          views: Number,
+          likes: Number,
+          comments: Number,
+          privacyStatus: String,
+          fetchedAt: Date,
+          // YouTube Analytics (retention), when the permission is granted.
+          averageViewPercentage: { type: Number, default: null },
+          averageViewDurationSeconds: { type: Number, default: null },
+          subscribersGained: { type: Number, default: null },
+          shares: { type: Number, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    /** First comment the channel posts on the Short (a question for viewers). */
+    firstComment: {
+      type: new Schema({ status: { type: String, enum: ['POSTED', 'FAILED'] }, text: String, commentId: String, attempts: Number, postedAt: Date, lastError: String }, { _id: false }),
       default: null,
     },
     /** Instagram Reel cross-post (independent of the YouTube upload). */

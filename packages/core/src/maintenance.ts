@@ -1,5 +1,5 @@
-import { GeneratedClipModel, LiveSessionModel, ProcessingJobModel, TranscriptChunkModel, TranscriptModel } from '@shorts/database';
-import { fetchVideoStats, type Notifier, type ObjectStorage } from '@shorts/integrations';
+import { GeneratedClipModel, HighlightCandidateModel, LiveSessionModel, ProcessingJobModel, TranscriptChunkModel, TranscriptModel } from '@shorts/database';
+import { YouTubePublishError, fetchVideoAnalytics, fetchVideoStats, postComment, type Notifier, type ObjectStorage } from '@shorts/integrations';
 import type { Logger } from '@shorts/observability';
 import type { Redis } from '@shorts/queue';
 import { ApprovalStatus, JobStatus, ProcessingStatus, SessionStatus, SourceMediaStatus, UploadStatus } from '@shorts/shared-types';
@@ -164,9 +164,9 @@ export async function recoverStuckSessions(deps: { logger?: Logger }, now = new 
 
 /** Refresh views/likes/comments of Shorts published in the last 90 days (1 quota unit per 50 videos). */
 export async function refreshVideoStats(
-  deps: { account: YouTubeAccountService; logger?: Logger; fetchStats?: typeof fetchVideoStats },
+  deps: { account: YouTubeAccountService; logger?: Logger; fetchStats?: typeof fetchVideoStats; fetchAnalytics?: typeof fetchVideoAnalytics },
   now = new Date(),
-): Promise<{ updated: number; missing: number }> {
+): Promise<{ updated: number; missing: number; analytics?: number }> {
   if (!(await deps.account.isConnected())) return { updated: 0, missing: 0 };
   const due = await GeneratedClipModel.find({
     uploadStatus: UploadStatus.PUBLISHED,
@@ -174,7 +174,7 @@ export async function refreshVideoStats(
     publishedAt: { $gte: new Date(now.getTime() - 90 * DAY) },
     $or: [{ stats: null }, { 'stats.fetchedAt': { $lt: new Date(now.getTime() - 5 * 3600_000) } }],
   })
-    .select('youtubeVideoId')
+    .select('youtubeVideoId stats')
     .limit(500)
     .lean();
   const fetchStats = deps.fetchStats ?? fetchVideoStats;
@@ -191,10 +191,83 @@ export async function refreshVideoStats(
         await GeneratedClipModel.updateOne({ _id: c._id }, { $set: { stats: { views: 0, likes: 0, comments: 0, privacyStatus: 'deleted', fetchedAt: now } } });
         continue;
       }
-      await GeneratedClipModel.updateOne({ _id: c._id }, { $set: { stats: { views: s.views, likes: s.likes, comments: s.comments, privacyStatus: s.privacyStatus, fetchedAt: now } } });
+      // Whole object (stats may still be null); keeps earlier analytics numbers.
+      const prev = (c.stats ?? {}) as Record<string, unknown>;
+      await GeneratedClipModel.updateOne({ _id: c._id }, { $set: { stats: { ...prev, views: s.views, likes: s.likes, comments: s.comments, privacyStatus: s.privacyStatus, fetchedAt: now } } });
       updated++;
     }
   }
   if (updated || missing) deps.logger?.info({ updated, missing }, 'YouTube stats refreshed');
-  return { updated, missing };
+
+  // Retention and subscribers (YouTube Analytics). Without that permission this is skipped.
+  let analytics = 0;
+  const analyticsFetch = deps.fetchAnalytics ?? fetchVideoAnalytics;
+  try {
+    const ids = due.map((c) => c.youtubeVideoId!);
+    for (let i = 0; i < ids.length; i += 200) {
+      for (const a of await analyticsFetch(ids.slice(i, i + 200), await deps.account.accessToken(), now)) {
+        await GeneratedClipModel.updateOne(
+          { youtubeVideoId: a.id, stats: { $ne: null } },
+          {
+            $set: {
+              'stats.averageViewPercentage': Math.round(a.averageViewPercentage * 10) / 10,
+              'stats.averageViewDurationSeconds': Math.round(a.averageViewDurationSeconds),
+              'stats.subscribersGained': a.subscribersGained,
+              'stats.shares': a.shares,
+            },
+          },
+        );
+        analytics++;
+      }
+    }
+  } catch (err) {
+    deps.logger?.warn({ err: (err as Error).message }, 'YouTube Analytics not read (reconnect YouTube to allow analytics)');
+  }
+  return { updated, missing, analytics };
+}
+
+const FALLBACK_QUESTIONS = ['What would you have done here? 👇', 'Rate this moment 1-10 👇', 'Who should we clip next? 👇'];
+
+/**
+ * Engagement: once a Short is public, the channel posts a question as the first
+ * comment (from the highlight's AI question, or a generic one). Up to 3 attempts.
+ */
+export async function postFirstComments(
+  deps: { account: YouTubeAccountService; settings: SettingsService; logger?: Logger; post?: typeof postComment },
+  now = new Date(),
+): Promise<{ posted: number; failed: number }> {
+  const { publishing } = (await deps.settings.getValues()).values;
+  if (publishing.firstComment === 'OFF' || !(await deps.account.isConnected())) return { posted: 0, failed: 0 };
+  const due = await GeneratedClipModel.find({
+    uploadStatus: UploadStatus.PUBLISHED,
+    youtubeVideoId: { $ne: null },
+    publishedAt: { $lte: new Date(now.getTime() - 2 * 60_000), $gte: new Date(now.getTime() - 7 * DAY) },
+    'firstComment.status': { $ne: 'POSTED' },
+    $or: [{ firstComment: null }, { 'firstComment.attempts': { $lt: 3 } }],
+  })
+    .select('youtubeVideoId highlightCandidateId firstComment')
+    .limit(20)
+    .lean();
+  const post = deps.post ?? postComment;
+  let posted = 0;
+  let failed = 0;
+  for (const c of due) {
+    const cand = await HighlightCandidateModel.findById(c.highlightCandidateId).select('commentQuestion').lean();
+    const text = (cand as { commentQuestion?: string | null } | null)?.commentQuestion || FALLBACK_QUESTIONS[posted % FALLBACK_QUESTIONS.length]!;
+    const attempts = (c.firstComment?.attempts ?? 0) + 1;
+    try {
+      const commentId = await post(c.youtubeVideoId!, text, await deps.account.accessToken());
+      await GeneratedClipModel.updateOne({ _id: c._id }, { $set: { firstComment: { status: 'POSTED', text, commentId, attempts, postedAt: now, lastError: null } } });
+      posted++;
+    } catch (err) {
+      // A missing permission isn't the Short's fault: keep its attempts for after a reconnect.
+      const permission = err instanceof YouTubePublishError && err.code === 'RECONNECT';
+      const message = permission ? 'YouTube needs the comment permission: reconnect the channel in Settings → YouTube.' : (err as Error).message.slice(0, 300);
+      await GeneratedClipModel.updateOne({ _id: c._id }, { $set: { firstComment: { status: 'FAILED', text, commentId: null, attempts: permission ? attempts - 1 : attempts, postedAt: null, lastError: message } } });
+      failed++;
+      if (permission) break;
+    }
+  }
+  if (posted || failed) deps.logger?.info({ posted, failed }, 'First comments posted');
+  return { posted, failed };
 }

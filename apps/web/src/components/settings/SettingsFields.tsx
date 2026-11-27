@@ -254,6 +254,20 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
         ],
       },
       {
+        title: 'Comments',
+        description: 'Comments help YouTube show a Short to more people.',
+        fields: [
+          {
+            section: 'publishing',
+            key: 'firstComment',
+            label: 'Ask viewers a question',
+            kind: 'cards',
+            width: 'full',
+            options: [opt('ON', 'On (recommended)', 'When a Short goes public, your channel posts a question about it as the first comment (pin it in YouTube Studio for best results).'), opt('OFF', 'Off')],
+          },
+        ],
+      },
+      {
         title: 'Title & description',
         description: 'Added to every new YouTube Short.',
         fields: [
@@ -324,6 +338,14 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
             ],
             helper: 'If no webcam is found, split screen shows the whole picture and “Game + small webcam” shows the middle.',
           },
+          {
+            section: 'clips',
+            key: 'coldOpen',
+            label: 'Start with the best moment',
+            kind: 'cards',
+            width: 'full',
+            options: [opt('ON', 'On (recommended)', 'Each Short opens with a 2-second flash of its best moment, then plays from the start. Stops people swiping away.'), opt('OFF', 'Off', 'Plays the clip from its start.')],
+          },
         ],
       },
       {
@@ -372,6 +394,14 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
             kind: 'cards',
             width: 'full',
             options: [opt('INTRO', 'First 4 seconds'), opt('ALWAYS', 'Whole Short'), opt('OFF', 'Never')],
+          },
+          {
+            section: 'subtitles',
+            key: 'reactionSticker',
+            label: 'Our reaction sticker',
+            kind: 'cards',
+            width: 'full',
+            options: [opt('ON', 'On (recommended)', 'A short yellow comment from your channel, e.g. “He really thought that would work”. Makes the Short clearly your own edit, which YouTube’s monetization rules look for.'), opt('OFF', 'Off')],
           },
         ],
       },

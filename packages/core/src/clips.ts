@@ -17,7 +17,7 @@ import {
 import { loadTranscriptSegments } from './analysis';
 import { FONTS_DIR, buildAssCaptions, presetStyle, type CaptionStyle } from './captions';
 import { DomainError, isDuplicateKeyError } from './errors';
-import { SHORT_HEIGHT, SHORT_WIDTH, captionAnchor, extractFrames, renderShort, type FrameBox, type RenderMode } from './render';
+import { SHORT_HEIGHT, SHORT_WIDTH, captionAnchor, coldOpenRange, concatShorts, extractFrames, renderShort, type FrameBox, type RenderMode } from './render';
 import type { SettingsService } from './settings';
 
 export interface RenderDeps {
@@ -127,23 +127,43 @@ export class RenderService {
 
       for (const [i, { clipId, version, candidate: c }] of claimed.entries()) {
         const keys = clipKeys(sessionId, clipId, version);
-        const files = { video: path.join(work, `${clipId}.mp4`), thumb: path.join(work, `${clipId}.jpg`), ass: path.join(work, `${clipId}.ass`) };
+        const files = {
+          video: path.join(work, `${clipId}.mp4`),
+          thumb: path.join(work, `${clipId}.jpg`),
+          ass: path.join(work, `${clipId}.ass`),
+          main: path.join(work, `${clipId}-main.mp4`),
+          teaser: path.join(work, `${clipId}-teaser.mp4`),
+          teaserThumb: path.join(work, `${clipId}-teaser.jpg`),
+          teaserAss: path.join(work, `${clipId}-teaser.ass`),
+        };
         try {
           const segments = await loadTranscriptSegments(sessionId, c.startSeconds, c.endSeconds);
           const hook = hookMode !== 'OFF' && c.hook ? { text: c.hook, mode: hookMode } : null;
-          await fsp.writeFile(files.ass, buildAssCaptions(segments, c.startSeconds, c.endSeconds, { ...style, anchorY: captionAnchor(mode, style.position) }, hook));
-          const out = await renderShort({
-            sourcePath: source,
-            outPath: files.video,
+          const captionStyle = { ...style, anchorY: captionAnchor(mode, style.position) };
+          const teaser = clipSettings.coldOpen !== 'OFF' ? coldOpenRange(c.startSeconds, c.endSeconds, c.keyMomentSeconds) : null;
+          // Our reaction sticker appears once the hook is gone (top), or at the bottom when the hook stays.
+          const reactionText = subtitles.reactionSticker !== 'OFF' ? (c as { reaction?: string | null }).reaction : null;
+          const reaction = reactionText ? { text: reactionText, fromSeconds: hookMode === 'ALWAYS' ? 1.5 : teaser ? 2.5 : 4.2, at: (hookMode === 'ALWAYS' ? 'BOTTOM' : 'TOP') as 'TOP' | 'BOTTOM' } : null;
+          // With a cold open the hook shows over the flash-forward, so the main part only keeps it when ALWAYS.
+          const mainHook = teaser && hook?.mode === 'INTRO' ? null : hook;
+          await fsp.writeFile(files.ass, buildAssCaptions(segments, c.startSeconds, c.endSeconds, captionStyle, mainHook, reaction));
+          const base = { sourcePath: source, fontsDir: FONTS_DIR, mode, facecam, keyMomentSeconds: c.keyMomentSeconds ?? null };
+          let out = await renderShort({
+            ...base,
+            outPath: teaser ? files.main : files.video,
             thumbnailPath: files.thumb,
-            captionsPath: segments.length || hook ? files.ass : null,
-            fontsDir: FONTS_DIR,
+            captionsPath: segments.length || mainHook || reaction ? files.ass : null,
             startSeconds: c.startSeconds,
             endSeconds: c.endSeconds,
-            keyMomentSeconds: c.keyMomentSeconds ?? null,
-            mode,
-            facecam,
           });
+          if (teaser) {
+            const teaserSegments = segments.filter((s) => s.endSeconds > teaser.start && s.startSeconds < teaser.end);
+            await fsp.writeFile(files.teaserAss, buildAssCaptions(teaserSegments, teaser.start, teaser.end, captionStyle, hook ? { text: hook.text, mode: 'ALWAYS' } : null));
+            const t = await renderShort({ ...base, outPath: files.teaser, thumbnailPath: files.teaserThumb, captionsPath: files.teaserAss, startSeconds: teaser.start, endSeconds: teaser.end });
+            await concatShorts([files.teaser, files.main], files.video);
+            const { size } = await fsp.stat(files.video);
+            out = { durationSeconds: Math.round((out.durationSeconds + t.durationSeconds) * 10) / 10, sizeBytes: size };
+          }
           await storage.upload(keys.video, files.video, 'video/mp4');
           await storage.upload(keys.thumbnail, files.thumb, 'image/jpeg');
           await storage.upload(keys.captions, files.ass, 'text/plain');
@@ -363,8 +383,17 @@ export function toClipDTO(c: any): GeneratedClipDTO {
     youtubeUrl: c.youtubeUrl ?? null,
     publishedAt: c.publishedAt ? c.publishedAt.toISOString() : null,
     stats: c.stats?.fetchedAt
-      ? { views: c.stats.views ?? 0, likes: c.stats.likes ?? 0, comments: c.stats.comments ?? 0, privacyStatus: c.stats.privacyStatus ?? null, fetchedAt: c.stats.fetchedAt.toISOString() }
+      ? {
+          views: c.stats.views ?? 0,
+          likes: c.stats.likes ?? 0,
+          comments: c.stats.comments ?? 0,
+          privacyStatus: c.stats.privacyStatus ?? null,
+          fetchedAt: c.stats.fetchedAt.toISOString(),
+          averageViewPercentage: c.stats.averageViewPercentage ?? null,
+          subscribersGained: c.stats.subscribersGained ?? null,
+        }
       : null,
+    firstComment: c.firstComment?.status ? { status: c.firstComment.status as 'POSTED' | 'FAILED', text: c.firstComment.text ?? '', lastError: c.firstComment.lastError ?? null } : null,
     instagram: {
       status: c.instagram?.status ?? 'NOT_POSTED',
       permalink: c.instagram?.permalink ?? null,

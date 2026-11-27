@@ -47,6 +47,14 @@ export interface HookOverlay {
   mode: 'INTRO' | 'ALWAYS';
 }
 
+/** Our own reaction line (originality layer): a yellow sticker shown from `fromSeconds` to the end. */
+export interface ReactionSticker {
+  text: string;
+  fromSeconds: number;
+  /** Where it sits: top (where the hook was) or above the bottom Shorts UI. */
+  at: 'TOP' | 'BOTTOM';
+}
+
 /** Fonts bundled with the renderer (passed to libass as fontsdir). */
 export const FONTS_DIR = fileURLToPath(new URL('../fonts', import.meta.url));
 
@@ -75,6 +83,9 @@ const assTime = (t: number) => {
   const s = Math.floor((cs % 6000) / 100);
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
 };
+
+/** The burned-in fonts have no emoji glyphs (they'd show as boxes), so drop emoji. */
+export const noEmoji = (t: string) => t.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '').replace(/\s+/g, ' ').trim();
 
 /** Neutralise ASS override syntax in transcript text. */
 const assText = (t: string) => t.replace(/\\/g, '').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim();
@@ -140,7 +151,7 @@ function chunk(words: TimedWord[], maxWords = MAX_WORDS): TimedWord[][] {
  * (times relative to the clip start). Each word lights up in the highlight
  * colour while it is spoken.
  */
-export function buildAssCaptions(segments: TranscriptSegment[], clipStart: number, clipEnd: number, style: CaptionStyle, hook?: HookOverlay | null): string {
+export function buildAssCaptions(segments: TranscriptSegment[], clipStart: number, clipEnd: number, style: CaptionStyle, hook?: HookOverlay | null, reaction?: ReactionSticker | null): string {
   // Keep captions clear of the YouTube Shorts UI at the top and bottom.
   const [alignment, marginV] = style.anchorY ? [5, 0] : style.position === 'TOP' ? [8, 260] : style.position === 'BOTTOM' ? [2, 420] : [5, 0];
   const place = style.anchorY ? `{\\pos(${WIDTH / 2},${Math.round(style.anchorY)})}` : '';
@@ -160,6 +171,8 @@ export function buildAssCaptions(segments: TranscriptSegment[], clipStart: numbe
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
     `Style: Caption,${style.fontFamily},${style.fontSize},${primary},${highlight},&H00000000,&H80000000,-1,0,0,0,100,100,${style.glow ? 2 : 0},0,1,${outline},${style.glow ? 0 : 2},${alignment},80,80,${marginV},1`,
     // Hook: dark text on a white box at the top, clear of the Shorts UI.
+    // Reaction: our own comment on a yellow sticker.
+    `Style: Reaction,Poppins ExtraBold,58,&H00141414,&H00141414,&H0033D6FF,&H0033D6FF,-1,0,0,0,100,100,0,0,3,16,0,${reaction?.at === 'BOTTOM' ? 2 : 8},90,90,${reaction?.at === 'BOTTOM' ? 430 : 250},1`,
     `Style: Hook,Poppins ExtraBold,76,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,18,0,8,90,90,${style.position === 'TOP' ? 620 : 250},1`,
     '',
     '[Events]',
@@ -187,12 +200,16 @@ export function buildAssCaptions(segments: TranscriptSegment[], clipStart: numbe
     const until = hook!.mode === 'ALWAYS' ? clipEnd - clipStart : Math.min(4, clipEnd - clipStart);
     events.unshift(`Dialogue: 1,${assTime(0)},${assTime(until)},Hook,,0,0,0,,{\\fad(150,200)}${hookText}`);
   }
+  const reactionText = reaction ? noEmoji(assText(reaction.text)).slice(0, 80) : '';
+  if (reactionText && clipEnd - clipStart > reaction!.fromSeconds + 1) {
+    events.push(`Dialogue: 2,${assTime(reaction!.fromSeconds)},${assTime(clipEnd - clipStart)},Reaction,,0,0,0,,{\\fad(200,0)}${reactionText}`);
+  }
   return [...header, ...events, ''].join('\n');
 }
 
 /** Upper-case hook, at most ~6 words, wrapped onto two balanced lines. */
 export function hookLines(text: string): string {
-  const words = assText(text).replace(/["“”]/g, '').toUpperCase().split(' ').filter(Boolean).slice(0, 7);
+  const words = noEmoji(assText(text)).replace(/["“”]/g, '').toUpperCase().split(' ').filter(Boolean).slice(0, 7);
   if (!words.length) return '';
   const joined = words.join(' ');
   if (joined.length <= 16) return joined;

@@ -345,7 +345,18 @@ export interface GeneratedClipDTO {
   youtubeVideoId: string | null;
   youtubeUrl: string | null;
   publishedAt: string | null;
-  stats: { views: number; likes: number; comments: number; privacyStatus: string | null; fetchedAt: string } | null;
+  stats: {
+    views: number;
+    likes: number;
+    comments: number;
+    privacyStatus: string | null;
+    fetchedAt: string;
+    /** Average % of the Short watched (YouTube Analytics); null until available. */
+    averageViewPercentage: number | null;
+    subscribersGained: number | null;
+  } | null;
+  /** The question the channel posted as the first comment. */
+  firstComment: { status: 'POSTED' | 'FAILED'; text: string; lastError: string | null } | null;
   instagram: { status: InstagramPostStatus; permalink: string | null; publishedAt: string | null; lastError: string | null };
   filesExpired: boolean;
   lastError: string | null;

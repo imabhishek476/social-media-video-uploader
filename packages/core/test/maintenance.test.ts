@@ -16,6 +16,7 @@ import {
   nextWindowOpen,
   recoverStuckSessions,
   refreshVideoStats,
+  postFirstComments,
   startOfNextMonthUtc,
   sweepClipFiles,
   sweepDoneSources,
@@ -167,13 +168,29 @@ describe('YouTube stats', () => {
         asked.push(ids);
         return [{ id: 'vidA', views: 1200, likes: 80, comments: 5, privacyStatus: 'public' }];
       },
+      fetchAnalytics: async () => [{ id: 'vidA', averageViewPercentage: 71.26, averageViewDurationSeconds: 19.4, subscribersGained: 3, shares: 2 }],
     });
     expect(asked).toEqual([['vidA', 'vidGone']]);
-    expect(res).toEqual({ updated: 1, missing: 1 });
-    expect((await GeneratedClipModel.findById(s.clipIds[0]).lean())!.stats).toMatchObject({ views: 1200, likes: 80, privacyStatus: 'public' });
+    expect(res).toEqual({ updated: 1, missing: 1, analytics: 1 });
+    expect((await GeneratedClipModel.findById(s.clipIds[0]).lean())!.stats).toMatchObject({ views: 1200, likes: 80, privacyStatus: 'public', averageViewPercentage: 71.3, subscribersGained: 3 });
     expect((await GeneratedClipModel.findById(s.clipIds[1]).lean())!.stats).toMatchObject({ privacyStatus: 'deleted' });
     // Fresh stats are not fetched again within a few hours.
-    expect(await refreshVideoStats({ account, fetchStats: async () => [] })).toEqual({ updated: 0, missing: 0 });
+    expect(await refreshVideoStats({ account, fetchStats: async () => [], fetchAnalytics: async () => [] })).toEqual({ updated: 0, missing: 0, analytics: 0 });
+  });
+
+  it('posts the highlight question as the first comment once, after the Short is public', async () => {
+    const s = await sessionWithClips([
+      { uploadStatus: 'PUBLISHED', publishedAt: new Date(Date.now() - 10 * 60_000), youtubeVideoId: 'vidQ' },
+      { uploadStatus: 'PUBLISHED', publishedAt: new Date(Date.now() + 86_400_000), youtubeVideoId: 'vidLater' },
+    ]);
+    const clip = await GeneratedClipModel.findById(s.clipIds[0]).lean();
+    await HighlightCandidateModel.updateOne({ _id: clip!.highlightCandidateId }, { $set: { commentQuestion: 'Would you have run? 👇' } });
+    const account = { isConnected: async () => true, accessToken: async () => 'tok' } as unknown as YouTubeAccountService;
+    const sent: Array<[string, string]> = [];
+    const post = async (id: string, text: string) => (sent.push([id, text]), 'c1');
+    expect(await postFirstComments({ account, settings, post })).toEqual({ posted: 1, failed: 0 });
+    expect(sent).toEqual([['vidQ', 'Would you have run? 👇']]);
+    expect(await postFirstComments({ account, settings, post })).toEqual({ posted: 0, failed: 0 });
   });
 });
 

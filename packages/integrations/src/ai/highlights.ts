@@ -12,6 +12,8 @@ export const HighlightOutput = z.object({
       end_seconds: z.number().describe('Clip end, absolute seconds from stream start'),
       key_moment_seconds: z.number().describe('The single best moment (the payoff) inside the clip'),
       hook: z.string().describe('On-screen hook shown on the video: 2-6 punchy words a scroller instantly gets, e.g. HE GOT ME, 1 VS 3, CHAT WAS RIGHT, NO WAY THAT WORKED. What was said at the moment, or the name of what happened. No hashtags, no emoji'),
+      reaction: z.string().describe('Our channel\'s own short reaction to the moment, shown as a sticker on the video: 3-8 words, witty, first person or about the streamer, e.g. "He really thought that would work 💀", "Chat called it 😭". One emoji at most').optional(),
+      comment_question: z.string().describe('A question for viewers to answer in the comments about this exact moment, under 12 words, e.g. "Would you have pressed the button? 👇"').optional(),
       reason: z.string().describe('One or two sentences: why this works as a standalone Short'),
       topic: z.string().describe('2-4 word topic label'),
       hook_score: z.number().describe('0-100: do the first 3 seconds grab attention?'),
@@ -34,8 +36,9 @@ You get a timestamped transcript of part of a stream. Each line is "[<absolute s
 
 Pick moments that:
 - work without context from the rest of the stream,
-- open with a hook in the first 2-3 seconds (start shortly before the setup, not in the middle of an unrelated sentence),
-- end right after the payoff or punchline, without trailing chatter,
+- start at most 1-2 seconds before the action: the very first line must already be interesting (viewers decide in the first second whether to swipe away); skip slow build-up,
+- end on the payoff or punchline itself, with no trailing chatter or fade-out, ideally on a line that makes rewatching from the start feel natural,
+- prefer 15-35 seconds; only go longer when the moment truly needs it,
 - contain a real reaction, joke, clutch play, reveal, rant, or strong opinion.
 
 Avoid: greetings, sub/donation read-outs, technical issues, waiting or loading, ads, and anything that only makes sense with prior context.
@@ -151,6 +154,8 @@ export function mapHighlightOutput(parsed: z.infer<typeof HighlightOutput>): Raw
         clarity: h.clarity_score,
       },
       hook: h.hook,
+      reaction: h.reaction?.trim() || null,
+      commentQuestion: h.comment_question?.trim() || null,
       reason: h.reason,
       topic: h.topic || null,
   }));

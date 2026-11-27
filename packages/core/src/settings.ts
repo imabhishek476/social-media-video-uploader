@@ -36,6 +36,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       maxClipsPerStream: config.defaults.maxClipsPerStream,
       minHighlightScore: config.defaults.minHighlightScore,
       reframingMode: ReframingMode.CENTER_CROP,
+      coldOpen: 'ON',
     },
     subtitles: {
       language: 'en',
@@ -46,10 +47,11 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       position: SubtitlePosition.MIDDLE,
       captionStyle: 'STREAMER',
       hookOverlay: 'ALWAYS',
+      reactionSticker: 'ON',
     },
     publishing: {
       mode: PublishingMode.MANUAL_APPROVAL,
-      privacyStatus: PrivacyStatus.PRIVATE,
+      privacyStatus: PrivacyStatus.PUBLIC,
       dailyUploadLimit: 10,
       minMinutesBetweenUploads: 60,
       categoryId: '20',
@@ -57,6 +59,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       windowEndHour: 24,
       timezone: 'UTC',
       instagramMode: 'MANUAL',
+      firstComment: 'ON',
       instagramTiming: 'SAME_AS_YOUTUBE',
       timingMode: 'BEST_TIME',
       slotTimes: '12:30, 15:30, 18:00, 21:00',

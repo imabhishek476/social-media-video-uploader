@@ -7,6 +7,7 @@ This proposal turns the ideas in `Future-Features.log` into an ordered build pla
 | Phase | Name | Why this order | Size |
 |---|---|---|---|
 | 8 | Scheduled publishing at the best time | Fastest win; most of the plumbing exists | S (2–3 days) |
+| **8.5** | **Growth & monetization** (cold-open cuts, loops, Shorts analytics, niche focus, comments, weekly compilation, originality layer) | Videos aren't getting views; fix reach before automating more. See `docs/GROWTH-STRATEGY.md` | M (5–7 days) |
 | 9 | Autopilot (no clicks) | Removes daily manual work; needs Phase 8's schedule | S–M (3–4 days) |
 | 10 | Categories and presets | Lets autopilot use the right style per content type | M (4–5 days) |
 | 11 | Any YouTube video ("Video clipper") | New content source beyond streams; uses Phase 10 presets | M (5–6 days) |
