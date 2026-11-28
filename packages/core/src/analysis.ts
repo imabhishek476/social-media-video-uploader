@@ -17,6 +17,7 @@ import {
 import type { Logger } from '@shorts/observability';
 import { UnrecoverableError, idempotencyKey, type QueueRegistry } from '@shorts/queue';
 import { CandidateStatus, JobType, ProcessingStage, ProcessingStatus, SessionStatus, SourceMediaStatus } from '@shorts/shared-types';
+import { CategoryService } from './categories';
 import { extractAudioChunks, measureLoudness, measureStaticRanges, staticShare } from './audio';
 import { loadChatCounts } from './chat';
 import { blendSignals, mergeHighlights, normalizeHighlight } from './highlights';
@@ -216,7 +217,15 @@ export class AnalysisService {
     if (!transcript) throw new UnrecoverableError('No transcript for this session; transcribe it first');
 
     await this.setStage(sessionId, ProcessingStage.ANALYZING);
-    const { clips } = (await this.deps.settings.getValues()).values;
+    const base = (await this.deps.settings.getValues()).values.clips;
+    // Phase 10: the session's category preset may set its own clip lengths.
+    const preset = await new CategoryService({ settings: this.deps.settings }).presetFor(sessionId);
+    const clips = {
+      ...base,
+      minDurationSeconds: preset.minDurationSeconds ?? base.minDurationSeconds,
+      defaultDurationSeconds: preset.defaultDurationSeconds ?? base.defaultDurationSeconds,
+      maxDurationSeconds: preset.maxDurationSeconds ?? base.maxDurationSeconds,
+    };
     const streamer = await StreamerChannelModel.findById(session.streamerChannelId).select('displayName preferences.game').lean();
     const game = detectGame(streamer?.preferences?.game, session.title);
     const segments = await this.loadSegments(sessionId);

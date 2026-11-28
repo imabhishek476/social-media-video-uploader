@@ -53,6 +53,9 @@ const liveSessionSchema = new Schema(
     reframingMode: { type: String, default: null },
     /** Short style chosen when regenerating (wins over streamer and Settings). */
     shortStyle: { type: String, default: null },
+    /** Phase 10 content category (GAMING, IRL, ...); detected after transcription, changeable in Clip Studio. */
+    category: { type: String, default: null },
+    categorySource: { type: String, enum: ['detected', 'manual', null], default: null },
     clipCount: { type: Number, default: 0 },
     estimatedCostUsd: { type: Number, default: 0 },
     /** How the end was established: provider end time, N confirmations, or admin action. */

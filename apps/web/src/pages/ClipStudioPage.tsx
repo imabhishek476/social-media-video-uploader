@@ -25,7 +25,7 @@ import Download from '@mui/icons-material/Download';
 import Movie from '@mui/icons-material/Movie';
 import { UserRole, type GeneratedClipDTO, type HighlightCandidateDTO, type TranscriptSegmentDTO } from '@shorts/shared-types';
 import { describeError } from '../api/client';
-import { useClipMedia, useClips, useHighlights, useMe, useRenderSession, useSession, useSessions, useSetFacecam, useSettings, useSourcePreview, useTranscript, useUpdateHighlight } from '../api/hooks';
+import { useClipMedia, useClips, useHighlights, useMe, useRenderSession, useSession, useSessions, useSetFacecam, useSetSessionCategory, useSettings, useSourcePreview, useTranscript, useUpdateHighlight } from '../api/hooks';
 import { FacecamOverlay } from '../components/FacecamOverlay';
 import { CandidateCard } from '../components/CandidateCard';
 import { STAGES, StageBar, stageMeta, stageOf, type Stage } from '../components/StagePipeline';
@@ -233,6 +233,7 @@ export function ClipStudioPage() {
         {s && (
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
             <StatusChip status={s.processingStage ?? s.status} />
+            <CategoryPicker sessionId={s.id} value={s.category} source={s.categorySource} canEdit={canEdit} />
             <Typography variant="body2" color="text.secondary">
               {formatDateTime(s.startedAt)} · AI cost {formatUsd(s.estimatedCostUsd)}
             </Typography>
@@ -571,6 +572,48 @@ export function ClipStudioPage() {
         }
       />
     </>
+  );
+}
+
+const CATEGORY_NAMES: Record<string, string> = {
+  GAMING: 'Gaming',
+  IRL: 'IRL / Reactions',
+  PODCAST: 'Podcast / Talk',
+  SPORTS: 'Sports',
+  COMEDY: 'Comedy',
+  MUSIC: 'Music',
+  EDUCATION: 'Education',
+  OTHER: 'Other',
+};
+
+/** The session's category (Phase 10): picks the preset for its next Shorts. */
+function CategoryPicker({ sessionId, value, source, canEdit }: { sessionId: string; value: string | null; source: 'detected' | 'manual' | null; canEdit: boolean }) {
+  const set = useSetSessionCategory();
+  return (
+    <Tooltip title={`${source === 'manual' ? 'Set by you' : value ? 'Detected automatically' : 'Detected when highlights are picked'}. Changes apply to Shorts rendered from now on (use Regenerate for existing ones). Presets: Settings → Categories.`}>
+      <TextField
+        select
+        size="small"
+        label="Category"
+        value={value ?? ''}
+        disabled={!canEdit || set.isPending}
+        onChange={(e) => set.mutate({ sessionId, category: e.target.value })}
+        sx={{ minWidth: 170 }}
+        slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+        error={set.isError}
+      >
+        {!value && (
+          <MenuItem value="" disabled>
+            Not detected yet
+          </MenuItem>
+        )}
+        {Object.entries(CATEGORY_NAMES).map(([k, l]) => (
+          <MenuItem key={k} value={k}>
+            {l}
+          </MenuItem>
+        ))}
+      </TextField>
+    </Tooltip>
   );
 }
 

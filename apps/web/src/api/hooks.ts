@@ -491,3 +491,50 @@ export function useAutopilotSwitch() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['autopilot'] }),
   });
 }
+
+// --- Categories and presets (Phase 10) ----------------------------------------
+
+export interface CategoryPreset {
+  category: string;
+  label: string;
+  shortStyle: string | null;
+  captionStyle: string | null;
+  hookOverlay: string | null;
+  minDurationSeconds: number | null;
+  defaultDurationSeconds: number | null;
+  maxDurationSeconds: number | null;
+  hashtags: string | null;
+  descriptionFooter: string | null;
+  playlist: 'ON' | 'OFF';
+  playlistId: string | null;
+}
+export interface CategoryStat {
+  category: string;
+  label: string;
+  shorts: number;
+  views: number;
+  likes: number;
+  avgViewPercent: number | null;
+  subscribers: number;
+}
+
+export function useCategories() {
+  return useQuery({ queryKey: ['categories'], queryFn: () => api<{ items: CategoryPreset[] }>('/categories') });
+}
+export function useCategoryStats() {
+  return useQuery({ queryKey: ['categories', 'stats'], queryFn: () => api<{ items: CategoryStat[] }>('/categories/stats'), refetchInterval: 60_000 });
+}
+export function useUpdateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ category, input }: { category: string; input: Partial<CategoryPreset> }) => api<CategoryPreset>(`/categories/${category}`, { method: 'PUT', body: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['categories'] }),
+  });
+}
+export function useSetSessionCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, category }: { sessionId: string; category: string }) => api<{ category: string }>(`/sessions/${sessionId}/category`, { method: 'PUT', body: { category } }),
+    onSuccess: (_d, v) => void qc.invalidateQueries({ queryKey: ['sessions', 'detail', v.sessionId] }),
+  });
+}

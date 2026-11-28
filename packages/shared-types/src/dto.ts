@@ -267,6 +267,9 @@ export interface LiveSessionDTO {
   reframingMode: string | null;
   /** Short style chosen when regenerating (Phase 8.6). */
   shortStyle: string | null;
+  /** Content category (Phase 10); null until detected. */
+  category: string | null;
+  categorySource: 'detected' | 'manual' | null;
   clipCount: number;
   estimatedCostUsd: number;
   reprocessCount: number;

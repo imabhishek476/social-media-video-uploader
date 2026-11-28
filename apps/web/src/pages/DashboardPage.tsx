@@ -25,7 +25,7 @@ import SyncOutlined from '@mui/icons-material/SyncOutlined';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { describeError } from '../api/client';
-import { useDashboardSummary, useSystemStatus } from '../api/hooks';
+import { useCategoryStats, useDashboardSummary, useSystemStatus } from '../api/hooks';
 import { PageHeader } from '../components/PageHeader';
 import { StatCard } from '../components/StatCard';
 import RateReviewOutlined from '@mui/icons-material/RateReviewOutlined';
@@ -188,6 +188,10 @@ export function DashboardPage() {
           </Panel>
         </Grid>
 
+        <Grid size={{ xs: 12 }}>
+          <CategoryResults />
+        </Grid>
+
         <Grid size={{ xs: 12, md: 6 }}>
           <Panel title="Latest generated Shorts">
             {summary.data?.latestClips.length ? (
@@ -269,5 +273,53 @@ export function DashboardPage() {
         ) : null}
       </Grid>
     </>
+  );
+}
+
+/** Phase 10: how each category's published Shorts are doing. */
+function CategoryResults() {
+  const q = useCategoryStats();
+  const rows = q.data?.items ?? [];
+  const best = rows[0];
+  return (
+    <Panel title="Results by category">
+      {q.isError ? (
+        <Alert severity="error">{describeError(q.error)}</Alert>
+      ) : !rows.length ? (
+        <Empty text="No published Shorts yet. Results appear here per category (Gaming, IRL, …)." />
+      ) : (
+        <>
+          {best && rows.length > 1 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Most views: <b>{best.label}</b>. Settings → Categories sets each category’s style.
+            </Typography>
+          )}
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Category</TableCell>
+                <TableCell align="right">Shorts</TableCell>
+                <TableCell align="right">Views</TableCell>
+                <TableCell align="right">Views / Short</TableCell>
+                <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Avg % watched</TableCell>
+                <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Subscribers</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={r.category}>
+                  <TableCell>{r.label}</TableCell>
+                  <TableCell align="right">{r.shorts}</TableCell>
+                  <TableCell align="right">{r.views.toLocaleString()}</TableCell>
+                  <TableCell align="right">{Math.round(r.views / Math.max(1, r.shorts)).toLocaleString()}</TableCell>
+                  <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{r.avgViewPercent == null ? '–' : `${r.avgViewPercent}%`}</TableCell>
+                  <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{r.subscribers}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </>
+      )}
+    </Panel>
   );
 }

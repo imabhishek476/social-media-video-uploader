@@ -14,6 +14,7 @@ export * from './models/audit-log';
 export * from './models/chat-activity';
 export * from './models/compilation';
 export * from './models/autopilot';
+export * from './models/category-preset';
 
 interface MinimalLogger {
   info(obj: object, msg?: string): void;

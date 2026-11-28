@@ -159,7 +159,7 @@ function scheduleSummary(d: Draft): string {
 // ---------------------------------------------------------------------------
 
 /** Tabs; a platform tab (`connector`) shows its account connection above its settings. Add new platforms the same way. */
-export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'instagram'; groups: Group[] }> = [
+export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'instagram'; /** A tab drawn by its own component instead of field groups. */ custom?: 'categories'; groups: Group[] }> = [
   {
     id: 'publishing',
     label: 'Publishing',
@@ -471,6 +471,7 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
       },
     ],
   },
+  { id: 'categories', label: 'Categories', custom: 'categories', groups: [] },
   {
     id: 'highlights',
     label: 'Highlights',

@@ -354,3 +354,30 @@ export async function fetchVideoAnalytics(ids: string[], accessToken: string, to
 }
 
 export const youtubeShortUrl = (videoId: string) => `https://www.youtube.com/shorts/${videoId}`;
+
+/** Create a playlist on the channel (playlists.insert, ~50 quota units). Returns its id. */
+export async function createPlaylist(title: string, description: string, accessToken: string, privacyStatus = 'public', apiBase = 'https://www.googleapis.com/youtube/v3'): Promise<string> {
+  const res = await fetch(`${apiBase}/playlists?part=snippet,status`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snippet: { title: title.slice(0, 150), description: description.slice(0, 5000) }, status: { privacyStatus } }),
+    signal: AbortSignal.timeout(30_000),
+  }).catch((err: Error) => {
+    throw new YouTubePublishError('UNAVAILABLE', `YouTube API unreachable: ${err.message}`, true);
+  });
+  if (!res.ok) throw await googleError(res, 'YouTube playlists.insert');
+  return ((await res.json()) as { id: string }).id;
+}
+
+/** Add a video to a playlist (playlistItems.insert, ~50 quota units). */
+export async function addToPlaylist(playlistId: string, videoId: string, accessToken: string, apiBase = 'https://www.googleapis.com/youtube/v3'): Promise<void> {
+  const res = await fetch(`${apiBase}/playlistItems?part=snippet`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snippet: { playlistId, resourceId: { kind: 'youtube#video', videoId } } }),
+    signal: AbortSignal.timeout(30_000),
+  }).catch((err: Error) => {
+    throw new YouTubePublishError('UNAVAILABLE', `YouTube API unreachable: ${err.message}`, true);
+  });
+  if (!res.ok) throw await googleError(res, 'YouTube playlistItems.insert');
+}

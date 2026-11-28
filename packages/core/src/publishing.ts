@@ -21,6 +21,7 @@ import { DomainError } from './errors';
 import { nextWindowOpen } from './scheduling';
 import { enqueueTracked } from './jobs';
 import type { AutopilotService } from './autopilot';
+import { CategoryService } from './categories';
 import type { SettingsService } from './settings';
 import { IMMEDIATE_WITHIN_MS, type ScheduleService } from './schedule';
 
@@ -208,7 +209,10 @@ export class PublishService {
       game,
     });
     const { publishing } = (await this.deps.settings.getValues()).values;
-    const description = withChannelBranding(out.description, publishing.descriptionFooter ?? '', publishing.channelHashtags ?? '');
+    // Phase 10: the category's hashtags join the channel's; its footer replaces the channel footer.
+    const preset = await new CategoryService({ settings: this.deps.settings }).presetFor(String(clip.liveSessionId));
+    const hashtags = [publishing.channelHashtags ?? '', preset.hashtags ?? ''].filter(Boolean).join(', ');
+    const description = withChannelBranding(out.description, preset.descriptionFooter ?? publishing.descriptionFooter ?? '', hashtags);
     await GeneratedClipModel.updateOne({ _id: clipId }, { $set: { title: out.title, description, tags: out.tags, metadataEditedByUser: false } });
     if (out.costUsd) await LiveSessionModel.updateOne({ _id: clip.liveSessionId }, { $inc: { estimatedCostUsd: out.costUsd } });
   }

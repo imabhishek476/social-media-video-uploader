@@ -15,6 +15,9 @@ const generatedClipSchema = new Schema(
     highlightScore: { type: Number, default: null },
     /** Style used for this Short and why (Phase 8.6). */
     shortStyle: { type: String, default: null },
+    /** Category the Short was made with (Phase 10), for stats and playlists. */
+    category: { type: String, default: null },
+    playlistAdded: { type: Boolean, default: false },
     styleReason: { type: String, default: null },
     reframingMode: { type: String, enum: enumValues(ReframingMode), default: ReframingMode.CENTER_CROP },
 

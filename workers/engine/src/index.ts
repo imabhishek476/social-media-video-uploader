@@ -16,6 +16,7 @@ import {
   LiveSessionService,
   NotificationService,
   AutopilotService,
+  CategoryService,
   focusLanguageMismatch,
   PublishService,
   ScheduleService,
@@ -101,6 +102,7 @@ interface Services {
   account: YouTubeAccountService;
   notify: NotificationService;
   autopilot: AutopilotService;
+  categories: CategoryService;
   inbox: InboxWatcher;
   storage: ObjectStorage;
 }
@@ -306,6 +308,7 @@ const ROLES: Record<string, RoleDefinition> = {
               const res = await services.upload.upload(data.clipId, { defer: ctx.defer, onProgress: ctx.reportProgress });
               if (res !== 'SKIPPED') {
                 await services.autopilot.uploadSucceeded();
+                await services.categories.addToPlaylist(data.clipId, () => services.account.accessToken());
                 const c = await GeneratedClipModel.findById(data.clipId).select('title').lean();
                 const { publishing } = (await services.settings.getValues()).values;
                 await services.notify.published(c?.title ?? 'Short', res.url, publishing.privacyStatus);
@@ -571,7 +574,9 @@ async function main() {
     importer: new SessionImportService({ provider: youtube.provider, sessions, logger: logger.child({ role: 'inbox' }) }),
     logger: logger.child({ role: 'inbox' }),
   });
-  const services: Services = { autopilot, settings, youtube, sessions, monitor, chat, instagram, instagramAccount, acquisition, analysis, render, publish, upload, account, notify, inbox, storage };
+  const categories = new CategoryService({ settings, logger: logger.child({ role: 'categories' }) });
+  void categories.backfill().then((n) => n && logger.info({ sessions: n }, 'Categories detected for older sessions')).catch((err: Error) => logger.warn({ err: err.message }, 'Category backfill failed'));
+  const services: Services = { autopilot, categories, settings, youtube, sessions, monitor, chat, instagram, instagramAccount, acquisition, analysis, render, publish, upload, account, notify, inbox, storage };
 
   for (const role of roles) {
     await ROLES[role]!.start({ config, logger: logger.child({ role }), connection, queues, workerId, workers, services });

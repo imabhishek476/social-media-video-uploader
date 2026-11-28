@@ -22,6 +22,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PageHeader } from '../components/PageHeader';
 import { formatDateTime } from '../lib/format';
 
+import { CategoryPresets } from '../components/settings/CategoryPresets';
 import { ALL_FIELDS, GroupCard, TABS, type Draft, type FieldDef } from '../components/settings/SettingsFields';
 
 export function SettingsPage() {
@@ -158,7 +159,9 @@ export function SettingsPage() {
         </>
       )}
       {current.connector === 'instagram' && <InstagramCard ig={settings.data?.instagram} canEdit={canEdit} />}
-      {!draft ? (
+      {current.custom === 'categories' ? (
+        <CategoryPresets canEdit={canEdit} />
+      ) : !draft ? (
         <Skeleton variant="rounded" height={400} />
       ) : (
         <Stack spacing={2} sx={{ maxWidth: 860 }}>

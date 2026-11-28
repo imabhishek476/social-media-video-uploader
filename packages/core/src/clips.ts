@@ -18,6 +18,7 @@ import { loadTranscriptSegments } from './analysis';
 import { FONTS_DIR, buildAssCaptions, presetStyle, type CaptionStyle } from './captions';
 import { DomainError, isDuplicateKeyError } from './errors';
 import { SHORT_HEIGHT, SHORT_WIDTH, captionAnchor, coldOpenRange, concatShorts, extractFrames, renderShort, type FrameBox, type RenderMode } from './render';
+import { CategoryService } from './categories';
 import type { SettingsService } from './settings';
 import { isShortStyle, pickStyle, styleLook, wordsPerSecond, type MomentType, type StyleSetting } from './styles';
 
@@ -90,7 +91,14 @@ export class RenderService {
     }
 
     await LiveSessionModel.updateOne({ _id: sessionId }, { $set: { processingStatus: ProcessingStatus.RUNNING, processingStage: RENDER_STAGE } });
-    const { clips: clipSettings, subtitles } = (await this.deps.settings.getValues()).values;
+    const { clips: clipSettings, subtitles: baseSubtitles } = (await this.deps.settings.getValues()).values;
+    // Phase 10: the category preset overrides Settings for style, captions and hook.
+    const preset = await new CategoryService({ settings: this.deps.settings }).presetFor(sessionId);
+    const subtitles = {
+      ...baseSubtitles,
+      captionStyle: (preset.captionStyle as typeof baseSubtitles.captionStyle | null) ?? baseSubtitles.captionStyle,
+      hookOverlay: (preset.hookOverlay as typeof baseSubtitles.hookOverlay | null) ?? baseSubtitles.hookOverlay,
+    };
     // A mode chosen for this session ("Re-render with layout…") wins over Settings.
     // Short style (Phase 8.6): regenerate choice > streamer > Settings. A session regenerated
     // with a fixed layout before styles existed keeps that layout (styleSetting = null).
@@ -104,7 +112,9 @@ export class RenderService {
           ? null
           : streamerStyle === 'AUTO' || isShortStyle(streamerStyle)
             ? streamerStyle
-            : (clipSettings.shortStyle ?? 'AUTO');
+            : preset.shortStyle === 'AUTO' || isShortStyle(preset.shortStyle)
+              ? preset.shortStyle
+              : (clipSettings.shortStyle ?? 'AUTO');
     const wanted = (styleSetting ? 'GAMEPLAY' : null) ?? session.reframingMode ?? clipSettings.reframingMode;
     const configured: RenderMode = (['BLUR_FIT', 'FACECAM_SPLIT', 'GAMEPLAY'] as string[]).includes(wanted) ? (wanted as RenderMode) : 'CENTER_CROP';
     let mode: RenderMode = configured;
@@ -216,6 +226,7 @@ export class RenderService {
                 height: SHORT_HEIGHT,
                 reframingMode: clipMode,
                 shortStyle: chosen?.style ?? null,
+                category: preset.category,
                 styleReason: chosen?.reason ?? null,
                 renderedAt: new Date(),
                 lastError: null,
