@@ -456,3 +456,38 @@ export function useBuildCompilation() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['compilations'] }),
   });
 }
+
+// --- Autopilot (Phase 9) ------------------------------------------------------
+
+export interface AutopilotStatus {
+  enabled: boolean;
+  paused: boolean;
+  pausedReason: string | null;
+  pausedAt: string | null;
+  consecutiveFailures: number;
+  minScore: number;
+  today: { published: number; held: number };
+}
+export interface AutopilotEvent {
+  id: string;
+  kind: 'PUBLISHED' | 'HELD' | 'PAUSED' | 'RESUMED';
+  clipId: string | null;
+  liveSessionId: string | null;
+  title: string;
+  score: number | null;
+  reasons: string[];
+  by: string;
+  createdAt: string;
+}
+
+export function useAutopilot() {
+  return useQuery({ queryKey: ['autopilot'], queryFn: () => api<{ status: AutopilotStatus; events: AutopilotEvent[] }>('/autopilot?limit=200'), refetchInterval: 15_000 });
+}
+
+export function useAutopilotSwitch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (action: 'pause' | 'resume') => api<AutopilotStatus>(`/autopilot/${action}`, { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['autopilot'] }),
+  });
+}

@@ -11,6 +11,7 @@ import { StreamerDetailPage } from './pages/StreamerDetailPage';
 import { StreamersPage } from './pages/StreamersPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SchedulePage } from './pages/SchedulePage';
+import { AutopilotPage } from './pages/AutopilotPage';
 
 export function App() {
   return (
@@ -24,6 +25,7 @@ export function App() {
           <Route path="sessions" element={<LiveSessionsPage />} />
           <Route path="clips" element={<ClipStudioPage />} />
           <Route path="schedule" element={<SchedulePage />} />
+          <Route path="autopilot" element={<AutopilotPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />

@@ -62,6 +62,7 @@ export function defaultSettings(config: AppConfig): AppSettingsInput {
       instagramMode: 'MANUAL',
       firstComment: 'ON',
       focusLanguage: '',
+      autopilotMinScore: 75,
       weeklyCompilation: 'ON',
       compilationDay: 'Sun',
       compilationHour: 18,

@@ -72,6 +72,8 @@ export const appSettingsSchema = z.object({
     instagramMode: z.enum(['MANUAL', 'WITH_YOUTUBE']),
     /** Channel focus: only Shorts in this language are approved automatically ('' = any). */
     focusLanguage: z.string().trim().max(10),
+    /** Autopilot quality gate: Shorts below this AI score wait for review. */
+    autopilotMinScore: z.number().int().min(0).max(100),
     /** Weekly "best of" compilation video. */
     weeklyCompilation: z.enum(['ON', 'OFF']),
     /** Day it is built (Sun..Sat) and the hour (in `timezone`). */
@@ -170,6 +172,7 @@ export const streamerPreferencesSchema = z
     language: z.string().trim().min(2).max(10).nullable(),
     game: z.string().trim().min(2).max(60).nullable(),
     shortStyle: z.enum(['AUTO', 'REACTION', 'GAMEPLAY', 'CLEAN', 'STORY']).nullable(),
+    autopilot: z.enum(['ON', 'OFF']).nullable(),
   })
   .partial()
   .strict()

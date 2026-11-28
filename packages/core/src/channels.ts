@@ -221,6 +221,7 @@ export function toStreamerDTO(c: any): StreamerDTO {
       language: p.language ?? null,
       game: p.game ?? null,
       shortStyle: (p as { shortStyle?: string | null }).shortStyle ?? null,
+      autopilot: (p as { autopilot?: string | null }).autopilot ?? null,
     },
     monitoringSince: (c.monitoringSince ?? c.createdAt).toISOString(),
     createdAt: c.createdAt.toISOString(),

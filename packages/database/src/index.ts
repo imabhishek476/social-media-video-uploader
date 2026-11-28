@@ -13,6 +13,7 @@ export * from './models/app-settings';
 export * from './models/audit-log';
 export * from './models/chat-activity';
 export * from './models/compilation';
+export * from './models/autopilot';
 
 interface MinimalLogger {
   info(obj: object, msg?: string): void;

@@ -195,6 +195,8 @@ export interface StreamerPreferencesDTO {
   game: string | null;
   /** Short style for this streamer; null = follow Settings. */
   shortStyle: string | null;
+  /** Autopilot for this streamer: ON / OFF; null = follow Settings. */
+  autopilot: string | null;
 }
 
 export interface StreamerDTO {

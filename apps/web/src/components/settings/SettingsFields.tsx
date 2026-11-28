@@ -174,7 +174,21 @@ export const TABS: Array<{ id: string; label: string; connector?: 'youtube' | 'i
             label: 'Before publishing',
             kind: 'cards',
             width: 'full',
-            options: [opt('MANUAL_APPROVAL', 'I check each Short first', 'Shorts wait in Clip Studio until you press Approve.'), opt('AUTO_PUBLISH', 'Publish automatically', 'Every new Short is approved and scheduled without you.')],
+            options: [
+              opt('MANUAL_APPROVAL', 'I check each Short first', 'Shorts wait in Clip Studio until you press Approve.'),
+              opt('AUTO_PUBLISH', 'Autopilot', 'Good Shorts are approved and scheduled without you. The rest wait for your review. See the Autopilot page.'),
+            ],
+            helper: 'A streamer can have Autopilot on or off regardless of this (Streamers → Edit).',
+          },
+          {
+            section: 'publishing',
+            key: 'autopilotMinScore',
+            label: 'Lowest AI score Autopilot publishes',
+            kind: 'number',
+            unit: 'of 100',
+            width: 'half',
+            helper: 'Shorts below this wait for you. Also held: too short or long, the same moment as a posted Short, another language, or risky words in the title.',
+            showIf: (d) => d.publishing.mode === 'AUTO_PUBLISH',
           },
           {
             section: 'publishing',

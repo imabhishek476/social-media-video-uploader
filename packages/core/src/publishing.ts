@@ -20,6 +20,7 @@ import { ApprovalStatus, JobType, PublishingMode, RenderStatus, UploadStatus, ty
 import { DomainError } from './errors';
 import { nextWindowOpen } from './scheduling';
 import { enqueueTracked } from './jobs';
+import type { AutopilotService } from './autopilot';
 import type { SettingsService } from './settings';
 import { IMMEDIATE_WITHIN_MS, type ScheduleService } from './schedule';
 
@@ -178,6 +179,8 @@ export class PublishService {
       afterApprove?: (clipId: string) => Promise<unknown>;
       /** Scheduled publishing: gives approved clips a publish slot. */
       schedule?: ScheduleService;
+      /** Phase 9: decides which Shorts publish without a click (quality gate). */
+      autopilot?: AutopilotService;
     },
   ) {}
 
@@ -230,20 +233,20 @@ export class PublishService {
       }
     }
     let autoApproved = 0;
-    const { publishing } = (await this.deps.settings.getValues()).values;
-    if (publishing.mode === PublishingMode.AUTO_PUBLISH) {
-      const pending = await GeneratedClipModel.find({ liveSessionId: sessionId, renderStatus: RenderStatus.RENDERED, approvalStatus: ApprovalStatus.PENDING, title: { $ne: '' } }).lean();
-      const focus = await focusLanguageMismatch(sessionId, publishing.focusLanguage);
-      if (focus) {
-        this.deps.logger?.info({ sessionId, language: focus }, 'Not auto-approved: different language from the channel focus');
-        return { generated, autoApproved, failed };
-      }
-      for (const c of pending) {
-        try {
-          await this.approve(String(c._id), null);
-          autoApproved++;
-        } catch (err) {
-          this.deps.logger?.warn({ err: (err as Error).message, clipId: String(c._id) }, 'Auto-approve skipped');
+    if (this.deps.autopilot) {
+      autoApproved = (await this.deps.autopilot.run(sessionId, (id) => this.approve(id, null))).published;
+    } else {
+      // No autopilot wired (tests, scripts): the plain "approve everything" behaviour.
+      const { publishing } = (await this.deps.settings.getValues()).values;
+      if (publishing.mode === PublishingMode.AUTO_PUBLISH && !(await focusLanguageMismatch(sessionId, publishing.focusLanguage))) {
+        const pending = await GeneratedClipModel.find({ liveSessionId: sessionId, renderStatus: RenderStatus.RENDERED, approvalStatus: ApprovalStatus.PENDING, title: { $ne: '' } }).lean();
+        for (const c of pending) {
+          try {
+            await this.approve(String(c._id), null);
+            autoApproved++;
+          } catch (err) {
+            this.deps.logger?.warn({ err: (err as Error).message, clipId: String(c._id) }, 'Auto-approve skipped');
+          }
         }
       }
     }

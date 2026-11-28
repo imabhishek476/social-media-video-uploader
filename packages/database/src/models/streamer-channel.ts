@@ -16,6 +16,8 @@ const preferencesSchema = new Schema(
     game: { type: String, default: null },
     /** Short style for this streamer (null = follow Settings). */
     shortStyle: { type: String, default: null },
+    /** Autopilot for this streamer: ON / OFF, or null = follow Settings. */
+    autopilot: { type: String, default: null },
   },
   { _id: false },
 );

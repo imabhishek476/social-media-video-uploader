@@ -11,12 +11,13 @@ import { AuthService, SESSION_COOKIE } from '../services/auth.service';
 import { getDashboardSummary } from '../services/dashboard.service';
 import { getJob, jobListQuerySchema, listJobs } from '../services/jobs.service';
 import { toClipDTO } from '@shorts/core';
-import { CompilationService, ScheduleService, StreamerPurgeService } from '@shorts/core';
+import { AutopilotService, CompilationService, ScheduleService, StreamerPurgeService } from '@shorts/core';
 import { GoogleYouTubeUploader } from '@shorts/integrations';
 import { CandidateService, ChannelService, ClipService, InstagramAccountService, InstagramPublishService, PublishService, SessionImportService, YouTubeAccountService, LiveSessionService, SettingsService } from '@shorts/core';
 import { GcsObjectStorage, InstagramGraphClient, YouTubeOAuthClient, createMetadataGenerator, createObjectStorage } from '@shorts/integrations';
 import { createPublishRoutes, createYouTubeCallbackRoute, createYouTubeRoutes } from './youtube';
 import { createScheduleRoutes } from './schedule';
+import { createAutopilotRoutes } from './autopilot';
 import { createCompilationRoutes } from './compilations';
 import { createClipRoutes, createHighlightRoutes, createSessionAnalysisRoutes } from './highlights';
 import { getReadiness, getSystemStatus } from '../services/system.service';
@@ -174,6 +175,7 @@ export function createV1Router(deps: AppDeps): Router {
   router.use(createScheduleRoutes(schedule, adminOnly));
   const compilations = new CompilationService({ settings, storage, account, uploader: new GoogleYouTubeUploader(), workDir: path.join(deps.config.worker.storageDir, 'tmp'), logger: deps.logger });
   router.use(createCompilationRoutes(compilations, deps.queues, adminOnly));
+  router.use(createAutopilotRoutes(new AutopilotService({ settings, logger: deps.logger }), adminOnly));
   router.use('/integrations/youtube', createYouTubeRoutes(account, adminOnly));
 
   router.put('/integrations/instagram', adminOnly, async (req, res) => {

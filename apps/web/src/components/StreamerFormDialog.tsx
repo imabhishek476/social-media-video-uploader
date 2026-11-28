@@ -29,6 +29,13 @@ const PREF_FIELDS: Array<{ key: keyof StreamerPreferencesInput; label: string; k
   { key: 'language', label: 'Language', kind: 'text', helper: 'en = local speech model; hi etc. = Groq Whisper' },
   { key: 'game', label: 'Main game', kind: 'text', helper: 'Optional, e.g. GTA 6, BGMI. Otherwise read from each stream title' },
   { key: 'shortStyle', label: 'Short style', kind: 'select', helper: 'e.g. Gameplay for a streamer with no webcam' },
+  { key: 'autopilot', label: 'Autopilot', kind: 'select', helper: 'Publish this streamer’s Shorts without a click' },
+];
+
+const AUTOPILOT_OPTIONS = [
+  { value: '', label: 'Follow Settings' },
+  { value: 'ON', label: 'On for this streamer' },
+  { value: 'OFF', label: 'Off: always review' },
 ];
 
 const STYLE_OPTIONS = [
@@ -42,7 +49,7 @@ const STYLE_OPTIONS = [
 
 type PrefDraft = Record<keyof StreamerPreferencesInput, string>;
 
-const emptyPrefs = (): PrefDraft => ({ maxClipsPerStream: '', minHighlightScore: '', minClipDurationSeconds: '', maxClipDurationSeconds: '', language: '', game: '', shortStyle: '' });
+const emptyPrefs = (): PrefDraft => ({ maxClipsPerStream: '', minHighlightScore: '', minClipDurationSeconds: '', maxClipDurationSeconds: '', language: '', game: '', shortStyle: '', autopilot: '' });
 
 function toPrefs(d: PrefDraft): StreamerPreferencesInput {
   const out: Record<string, number | string | null> = {};
@@ -191,7 +198,7 @@ export function StreamerFormDialog({ open, streamer, onClose, onSaved }: Streame
                       onChange={(e) => setPrefs((p) => ({ ...p, [f.key]: e.target.value }))}
                     >
                       {f.kind === 'select'
-                        ? STYLE_OPTIONS.map((o) => (
+                        ? (f.key === 'autopilot' ? AUTOPILOT_OPTIONS : STYLE_OPTIONS).map((o) => (
                             <MenuItem key={o.value} value={o.value}>
                               {o.label}
                             </MenuItem>

@@ -17,6 +17,7 @@ export * from './clips';
 export * from './publishing';
 export * from './scheduling';
 export * from './styles';
+export * from './autopilot';
 export * from './schedule';
 export * from './compilation';
 export * from './maintenance';

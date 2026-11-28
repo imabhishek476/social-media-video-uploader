@@ -15,6 +15,8 @@ import {
   InstagramPublishService,
   LiveSessionService,
   NotificationService,
+  AutopilotService,
+  focusLanguageMismatch,
   PublishService,
   ScheduleService,
   budgetStatus,
@@ -98,6 +100,7 @@ interface Services {
   upload: UploadService;
   account: YouTubeAccountService;
   notify: NotificationService;
+  autopilot: AutopilotService;
   inbox: InboxWatcher;
   storage: ObjectStorage;
 }
@@ -302,6 +305,7 @@ const ROLES: Record<string, RoleDefinition> = {
             try {
               const res = await services.upload.upload(data.clipId, { defer: ctx.defer, onProgress: ctx.reportProgress });
               if (res !== 'SKIPPED') {
+                await services.autopilot.uploadSucceeded();
                 const c = await GeneratedClipModel.findById(data.clipId).select('title').lean();
                 const { publishing } = (await services.settings.getValues()).values;
                 await services.notify.published(c?.title ?? 'Short', res.url, publishing.privacyStatus);
@@ -313,6 +317,7 @@ const ROLES: Record<string, RoleDefinition> = {
               if (final) {
                 const msg = (err as Error).message;
                 await services.upload.markFailed(data.clipId, msg).catch(() => undefined);
+                await services.autopilot.uploadFailed(data.clipId, msg).catch(() => undefined);
                 const c = await GeneratedClipModel.findById(data.clipId).select('title').lean();
                 if (/reconnect/i.test(msg)) await services.notify.youtubeReconnect(msg);
                 else await services.notify.uploadFailed(c?.title ?? 'Short', msg);
@@ -523,7 +528,15 @@ async function main() {
     logger: logger.child({ role: 'instagram' }),
   });
   const schedule = new ScheduleService({ settings, accessToken: () => account.accessToken(), logger: logger.child({ role: 'schedule' }) });
+  const autopilot = new AutopilotService({
+    settings,
+    logger: logger.child({ role: 'autopilot' }),
+    notify: { send: (text, once) => notify.send(text, once) },
+    webOrigin: config.webOrigin,
+    languageMismatch: focusLanguageMismatch,
+  });
   const publish = new PublishService({
+    autopilot,
     schedule,
     settings,
     queues,
@@ -558,7 +571,7 @@ async function main() {
     importer: new SessionImportService({ provider: youtube.provider, sessions, logger: logger.child({ role: 'inbox' }) }),
     logger: logger.child({ role: 'inbox' }),
   });
-  const services: Services = { settings, youtube, sessions, monitor, chat, instagram, instagramAccount, acquisition, analysis, render, publish, upload, account, notify, inbox, storage };
+  const services: Services = { autopilot, settings, youtube, sessions, monitor, chat, instagram, instagramAccount, acquisition, analysis, render, publish, upload, account, notify, inbox, storage };
 
   for (const role of roles) {
     await ROLES[role]!.start({ config, logger: logger.child({ role }), connection, queues, workerId, workers, services });
